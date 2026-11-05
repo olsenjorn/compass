@@ -171,6 +171,24 @@ label.f select,label.f input{font-size:14px;text-transform:none;letter-spacing:0
 .card .cardhead{background:var(--brand);color:var(--brand-ink);margin:-28px -24px 4px;padding:22px 24px 18px;border-radius:12px 12px 0 0;display:flex;flex-direction:column;gap:10px}
 .card .cardhead .logo{height:40px;width:auto;align-self:flex-start;margin:0 0 0 -6px}
 .card .cardhead h1{color:var(--brand-ink)}
+.adrcard{width:min(1100px,100%);max-height:calc(100% - 32px);overflow:auto;position:relative}
+.adrcard .x{position:absolute;top:10px;right:10px;border:0;background:none;font-size:22px;cursor:pointer;color:var(--muted);width:36px;height:36px}
+.adrtop{display:flex;flex-direction:column;gap:10px}
+.adrtop p{max-width:70ch}
+.adrtabs{display:flex;gap:6px;flex-wrap:wrap}
+.adrtable{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+.adrtable table{border-collapse:collapse;width:100%;font-size:13px;min-width:760px}
+.adrtable th{text-align:left;font-weight:600;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em;padding:8px 10px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel)}
+.adrtable td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+.adrtable tr.none td{opacity:.75}
+.adrtable .mut{font-size:12px}
+.sk{display:inline-block;border-radius:999px;padding:1px 9px;font-weight:600;font-size:12px;white-space:nowrap}
+.sk.høy{background:var(--segA);color:var(--panel)}
+.sk.middels{background:var(--segC);color:var(--panel)}
+.sk.lav{background:var(--warn-bg);color:var(--warn-ink)}
+.sk.ingen{background:var(--line);color:var(--muted)}
+.adrsave{position:sticky;bottom:-28px;background:var(--panel);padding-block:10px;align-items:center}
+
 @media (max-width:760px){.logo{height:28px}.top .brand .ttl{font-size:19px}}
 
 @media (max-width:760px){.who span.nm{display:none}}
@@ -234,6 +252,7 @@ label.f select,label.f input{font-size:14px;text-transform:none;letter-spacing:0
     <button id="vMap" aria-pressed="false">Kart</button>
   </div>
   <div class="who"><span class="nm">Innlogget som <b id="who"></b></span>
+    <button type="button" class="linkbtn" id="tAdr" hidden>Finn adresser</button>
     <button type="button" class="linkbtn" id="pwBtn">Bytt passord</button>
     <button type="button" class="linkbtn" id="logout">Logg ut</button></div>
   <div class="sum" aria-live="polite">
@@ -284,6 +303,13 @@ label.f select,label.f input{font-size:14px;text-transform:none;letter-spacing:0
   </section>
 </div>
 </div>
+<div class="dlg" id="adrDlg" hidden>
+  <div class="card adrcard" role="dialog" aria-modal="true" aria-labelledby="adrH">
+    <button type="button" class="x" id="adrClose" aria-label="Lukk">×</button>
+    <h1 id="adrH" style="font-size:24px">Finn besøksadresser</h1>
+    <div id="adrBody"></div>
+  </div>
+</div>
 <div class="dlg" id="pwDlg" hidden>
   <form class="card" id="pwForm">
     <h1 style="font-size:24px">Bytt passord</h1>
@@ -297,5 +323,6 @@ label.f select,label.f input{font-size:14px;text-transform:none;letter-spacing:0
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script src="config.js"></script>
 <script src="app.js"></script>
+<script src="adresser.js"></script>
 </body>
 </html>

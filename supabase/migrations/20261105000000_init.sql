@@ -49,25 +49,30 @@ alter table public.kunder        enable row level security;
 alter table public.sted_rettelse enable row level security;
 
 -- Hver bruker kan se sin egen tilgangsrad (brukes av policyene under og av appen)
+drop policy if exists "tilgang: se egen rad" on public.tilgang;
 create policy "tilgang: se egen rad" on public.tilgang
   for select to authenticated
   using (epost = lower((select auth.jwt() ->> 'email')));
 
+drop policy if exists "kunder: lese med tilgang" on public.kunder;
 create policy "kunder: lese med tilgang" on public.kunder
   for select to authenticated
   using (exists (select 1 from public.tilgang t
                  where t.epost = lower((select auth.jwt() ->> 'email'))));
 
+drop policy if exists "rettelse: lese med tilgang" on public.sted_rettelse;
 create policy "rettelse: lese med tilgang" on public.sted_rettelse
   for select to authenticated
   using (exists (select 1 from public.tilgang t
                  where t.epost = lower((select auth.jwt() ->> 'email'))));
 
+drop policy if exists "rettelse: legge til med tilgang" on public.sted_rettelse;
 create policy "rettelse: legge til med tilgang" on public.sted_rettelse
   for insert to authenticated
   with check (exists (select 1 from public.tilgang t
                       where t.epost = lower((select auth.jwt() ->> 'email'))));
 
+drop policy if exists "rettelse: endre med tilgang" on public.sted_rettelse;
 create policy "rettelse: endre med tilgang" on public.sted_rettelse
   for update to authenticated
   using (exists (select 1 from public.tilgang t
@@ -75,6 +80,7 @@ create policy "rettelse: endre med tilgang" on public.sted_rettelse
   with check (exists (select 1 from public.tilgang t
                       where t.epost = lower((select auth.jwt() ->> 'email'))));
 
+drop policy if exists "rettelse: slette med tilgang" on public.sted_rettelse;
 create policy "rettelse: slette med tilgang" on public.sted_rettelse
   for delete to authenticated
   using (exists (select 1 from public.tilgang t

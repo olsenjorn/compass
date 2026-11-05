@@ -22,6 +22,7 @@ const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).
 let GEO = null;          // {kommuner, regmap, reglab, poststeder}
 let RAW = [];            // kunder fra databasen
 let RETT = {};           // kundenr -> rettelse
+let ADR = {};            // kundenr -> besøksadresse (kunde_adresse)
 let DATA = [];
 let ME = null;           // {epost, navn, rolle}
 let CHARGERS = store.get("kk_chargers", null);
@@ -69,10 +70,11 @@ async function start() {
         ["kommuner", "regmap", "reglab", "poststeder"].map(f => fetch(`data/${f}.json`).then(r => r.json())));
       GEO = { kommuner, regmap, reglab, poststeder };
     }
-    const [me, k, r] = await Promise.all([
+    const [me, k, r, a] = await Promise.all([
       sb.from("tilgang").select("epost,navn,rolle").maybeSingle(),
       sb.from("kunder").select("*"),
-      sb.from("sted_rettelse").select("*")
+      sb.from("sted_rettelse").select("*"),
+      sb.from("kunde_adresse").select("*")
     ]);
     if (k.error) throw k.error;
     ME = me.data;
@@ -85,6 +87,8 @@ async function start() {
     $("who").textContent = ME.navn;
     RAW = k.data.map(fromDb);
     RETT = {}; (r.data || []).forEach(x => RETT[x.kundenr] = x);
+    ADR = {}; (a.data || []).forEach(x => ADR[x.kundenr] = x);
+    $("tAdr").hidden = !(ME.rolle === "admin" || ME.rolle === "leder");
     $("lstatus").hidden = true;
     initMap();
     refreshData(true);
@@ -100,6 +104,9 @@ function fromDb(c) {
     adr: c.besoksadresse || "", pnr: c.postnr || "", br: c.bransje || "", st: c.status || "" };
 }
 function applyFix(c) {
+  const a = ADR[c.k];
+  if (a && a.lat != null) return Object.assign({}, c, { adr: a.adresse, pnr: a.postnr || "", ps: a.poststed || c.ps, lat: a.lat, lon: a.lon, r: a.region || c.r, pr: "adresse", orgnr: a.orgnr, akilde: a.kilde, asikk: a.sikkerhet });
+  if (a) c = Object.assign({}, c, { adr: a.adresse, pnr: a.postnr || "", orgnr: a.orgnr, akilde: a.kilde, asikk: a.sikkerhet });
   const f = RETT[c.k];
   return f ? Object.assign({}, c, { ps: f.poststed, lat: f.lat, lon: f.lon, r: f.region || c.r, pr: "rettet", rettAv: f.endret_av }) : c;
 }
@@ -261,7 +268,14 @@ function select(k, pan = true) {
       <div class="barlbl"><span>Profil ${kr(c.p)}</span><span>Ventilasjon ${kr(c.v)}</span></div></div>
     ${c.lat == null ? `<div class="box warn">Kunden mangler sted og vises ikke i kartet. Legg inn poststed under, så ser alle kunden i kartet.</div>` :
       rett ? `<div class="box warn">Sted satt av ${esc(rett.endret_av)}. Plassert midt i ${esc(c.ps)}.</div>` :
+      c.pr === "adresse" ? `<div class="status">Adresse fra ${esc(c.akilde || "register")}${c.orgnr ? `, org.nr. ${esc(c.orgnr)}` : ""}${c.asikk && c.asikk !== "høy" ? ` · sikkerhet ${esc(c.asikk)}` : ""}.</div>` :
       c.pr !== "postnr" ? `<div class="box warn">Plassert midt i ${esc(c.ps)}. Nøyaktig plassering krever besøksadresse.</div>` : ""}
+    ${(ME.rolle === "admin" || ME.rolle === "leder") ? `<form id="adrForm" class="fixrow">
+      <label class="f">Besøksadresse
+        <input id="adrIn" placeholder="Gate 1, 9008 Tromsø" value="${esc(c.adr ? c.adr + (c.pnr ? ", " + c.pnr : "") + (c.ps ? " " + c.ps : "") : "")}" autocomplete="off">
+      </label>
+      <button class="btn" type="submit">Lagre</button>
+    </form><div class="status" id="adrMsg"></div>` : ""}
     <form id="fixForm" class="fixrow">
       <label class="f">Sett eller endre poststed
         <input id="fixIn" list="psList" placeholder="Skriv poststed" value="${esc(rett ? rett.poststed : "")}" autocomplete="off">
@@ -282,6 +296,19 @@ function select(k, pan = true) {
     const { error } = await sb.from("sted_rettelse").delete().eq("kundenr", c.k);
     if (error) { $("fixMsg").textContent = "Kunne ikke fjerne: " + error.message; return }
     delete RETT[c.k]; refreshData(false); select(k, false);
+  };
+  if ($("adrForm")) $("adrForm").onsubmit = async e => {
+    e.preventDefault();
+    const v = $("adrIn").value.trim(); if (!v) return;
+    $("adrMsg").textContent = "Slår opp adressen hos Kartverket …";
+    try {
+      const g = await window.KKAdr.geocodeFree(v);
+      if (!g) { $("adrMsg").textContent = "Fant ikke adressen hos Kartverket. Skriv gate, nummer og postnummer."; return }
+      const row = { kundenr: c.k, adresse: g.adresse, postnr: g.postnr, poststed: g.poststed, kommunenr: g.kommunenr, region: GEO.regmap[g.kommunenr] || "Utenfor Nord-Norge", lat: g.lat, lon: g.lon, orgnr: c.orgnr || null, kilde: "Lagt inn manuelt", sikkerhet: "manuell" };
+      const { data, error } = await sb.from("kunde_adresse").upsert(row).select().single();
+      if (error) { $("adrMsg").textContent = "Kunne ikke lagre: " + error.message; return }
+      ADR[c.k] = data; refreshData(false); select(k, false);
+    } catch (err) { $("adrMsg").textContent = "Oppslaget feilet: " + err.message }
   };
   $("fixForm").onsubmit = async e => {
     e.preventDefault();
@@ -408,6 +435,10 @@ $("vList").onclick = () => { $("main").dataset.view = "list"; $("vList").setAttr
 const reTheme = () => { if (map && DATA.length) { render(false); drawChargers() } };
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", reTheme);
 
+window.KK = {
+  sb, get RAW() { return RAW }, get GEO() { return GEO }, get ADR() { return ADR }, get ME() { return ME },
+  setAdr(rows) { rows.forEach(x => ADR[x.kundenr] = x); refreshData(false) }
+};
 /* datalist med poststeder lastes når geodata er hentet */
 const _start = start;
 start = async function () {
