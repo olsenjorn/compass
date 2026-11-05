@@ -2,5 +2,5 @@
 // dataene beskyttes av innlogging og RLS i databasen.
 window.KK_CONFIG = {
   supabaseUrl: "https://vikhsdutvrieqdkpdpya.supabase.co",
-  supabaseKey: "sb_publishable_ERSTATT"
+  supabaseKey: "sb_publishable_SkwZ13wQPl9-qlR63Kt31g_PHAk1EBN"
 };
