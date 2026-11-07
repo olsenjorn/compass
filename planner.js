@@ -124,9 +124,25 @@ function scheduleSave() {
   setStatus("Endringer ikke lagret …");
   clearTimeout(saveT); saveT = setTimeout(save, 900);
 }
+function summary() {
+  return plan.data.dager.map((d, i) => {
+    const c = computed[i]; if (!c) return null;
+    const st = c.items[0];
+    return {
+      start: st.t, slutt: Math.round(c.end), km: Math.round(c.km), kjoring: Math.round(c.driveMin), besok: c.visits,
+      fra: d.start.type === "fly" ? `Fly ${d.start.flyplass || ""}`.trim() : d.start.type === "hotell" ? (d.start.navn || "Hotell") : "Hjemme",
+      stopp: c.items.filter(x => x.kind !== "start").map(x => x.kind === "kunde"
+        ? { n: x.n, type: "kunde", k: x.st.k, navn: x.c ? x.c.n : x.st.k, sted: x.c ? [x.c.adr, x.c.ps].filter(Boolean).join(", ") : "", fra: Math.round(x.begin), til: Math.round(x.end), ankomst: Math.round(x.arr), kjoring: x.leg ? Math.round(x.leg.total) : 0 }
+        : { n: x.n, type: d.slutt.type, navn: d.slutt.type === "hjem" ? "Hjem" : d.slutt.navn, sted: d.slutt.adr || "", ankomst: Math.round(x.arr), kjoring: x.leg ? Math.round(x.leg.total) : 0 })
+    };
+  });
+}
+let computing = Promise.resolve();
 async function save() {
   if (readonly || !plan) return;
+  await computing;
   const sb = KK().sb;
+  plan.data.sammendrag = summary();
   const row = { tittel: plan.tittel || "Ny rute", data: plan.data, endret: new Date().toISOString() };
   let res;
   if (plan.id) res = await sb.from("ruteplaner").update(row).eq("id", plan.id).select("id,laget_av").single();
@@ -142,20 +158,21 @@ async function loadList(quiet) {
   if (!error) plans = data || [];
   if (!quiet) render(); else renderPicker();
 }
-async function openPlan(id) {
+async function openPlan(id, dayIdx) {
   const { data, error } = await KK().sb.from("ruteplaner").select("*").eq("id", id).single();
   if (error || !data) { setStatus("Fant ikke ruten."); return }
   plan = { id: data.id, tittel: data.tittel, laget_av: data.laget_av, data: Object.assign({ besokMin: 60, pause: true, dager: [] }, data.data || {}) };
   if (!plan.data.dager.length) plan.data.dager.push(newPlan().data.dager[0]);
   readonly = plan.laget_av !== (me().epost || "");
-  active = 0; hotelMode = false; wantFit = true; store.set("kk_plan", id);
-  recompute();
+  active = Math.min(Math.max(0, dayIdx || 0), plan.data.dager.length - 1); hotelMode = false; overview = false; wantFit = true; store.set("kk_plan", id);
+  return recompute();
 }
 
 /* ---------- endringer ---------- */
 function day() { return plan.data.dager[active] }
 function change() { scheduleSave(); recompute() }
 function addStop(k) {
+  if (overview) { overview = false; render() }
   const c = kunde(k);
   if (!c) return;
   if (c.lat == null) { flash(`${c.n} mangler sted og kan ikke legges i ruten.`); return }
@@ -223,26 +240,60 @@ function drawHotels(list) {
 }
 
 /* ---------- kart ---------- */
+// Én farge per dag (gjentas etter sju dager). Første og siste etappe tegnes i mørkere nyanse.
+const DAYC = ["#1d5aa8", "#c2410c", "#15803d", "#7e22ce", "#b45309", "#0e7490", "#be185d"];
+const dayColor = i => DAYC[i % DAYC.length];
+function shade(hex, f) { const n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255, m = v => Math.round(v * f).toString(16).padStart(2, "0"); return "#" + m(r) + m(g) + m(b) }
+let overview = false, legendEl = null;
 function drawPlan() {
   const map = KK().map; if (!map) return;
   if (!planLayer) planLayer = L.layerGroup().addTo(map);
   planLayer.clearLayers();
+  drawLegend();
   if (!open || !plan) return;
   computed.forEach((c, di) => {
     if (!c) return;
-    const act = di === active;
-    c.items.forEach(it => { if (it.leg && it.leg.geom) L.polyline(it.leg.geom, { color: act ? css("--accent") : css("--muted"), weight: act ? 5 : 3, opacity: act ? .85 : .45, dashArray: it.leg.est ? "6 8" : null, interactive: false }).addTo(planLayer) });
-    if (!act) return;
+    const act = di === active, col = dayColor(di), dark = shade(col, .55);
+    const show = overview || act;
+    const legs = c.items.filter(it => it.leg && it.leg.geom);
+    legs.forEach(it => {
+      const firstLeg = it === c.items.find(x => x.leg);
+      const lastLeg = it.kind === "slutt";
+      const isEdge = overview && (firstLeg || lastLeg);
+      L.polyline(it.leg.geom, {
+        color: show ? (isEdge ? dark : col) : css("--muted"),
+        weight: show ? (isEdge ? 6 : 4.5) : 3, opacity: show ? .9 : .4,
+        dashArray: it.leg.est ? "6 8" : null, interactive: false
+      }).addTo(planLayer);
+    });
+    if (!show) return;
     c.items.forEach(it => {
       if (!it.pt) return;
+      const bg = it.kind === "kunde" ? col : dark;
+      const label = overview ? (it.kind === "start" ? `D${di + 1}` : it.n) : it.n;
       const cls = it.kind === "start" ? "pn start" : it.kind === "slutt" ? "pn end" : "pn";
-      L.marker(it.pt, { icon: L.divIcon({ className: "", html: `<div class="${cls}">${it.n}</div>`, iconSize: [28, 28], iconAnchor: [14, 14] }), zIndexOffset: 1000, interactive: false })
+      L.marker(it.pt, { icon: L.divIcon({ className: "", html: `<div class="${cls}${overview ? " ov" : ""}" style="${overview ? `background:${bg};color:#fff` : ""}">${label}</div>`, iconSize: [28, 28], iconAnchor: [14, 14] }), zIndexOffset: 1000 + (act ? 100 : 0), interactive: false })
         .addTo(planLayer);
     });
   });
 }
-
+function drawLegend() {
+  const wrap = document.querySelector(".mapwrap"); if (!wrap) return;
+  if (!legendEl) { legendEl = document.createElement("div"); legendEl.className = "daylegend"; wrap.appendChild(legendEl) }
+  if (!open || !plan || !overview) { legendEl.hidden = true; return }
+  legendEl.hidden = false;
+  legendEl.innerHTML = `<b>${esc(plan.tittel)}</b>` + plan.data.dager.map((d, i) => { const c = computed[i];
+    return `<button type="button" data-lg="${i}"><i style="background:${dayColor(i)};border-color:${shade(dayColor(i), .55)}"></i>Dag ${i + 1} · ${esc(dato(d.dato))}<span>${c ? `${c.visits} besøk · ${km(c.km)}` : ""}</span></button>` }).join("") +
+    `<div class="lgnote"><i class="dk"></i>Mørkere strek: til første og fra siste kunde</div>`;
+  legendEl.querySelectorAll("[data-lg]").forEach(b => b.onclick = () => { overview = false; active = +b.dataset.lg; hotelMode = false; clearHotels(); render(); drawPlan(); fitDay() });
+}
+function fitAll() {
+  const map = KK().map, pts = [];
+  computed.forEach(c => c && c.items.forEach(i => { if (i.pt) pts.push(i.pt); if (i.leg && i.leg.geom) pts.push(...i.leg.geom) }));
+  if (pts.length) map.fitBounds(L.latLngBounds(pts).pad(.08), { maxZoom: 11 });
+}
 function fitDay() {
+  if (overview) return fitAll();
   const c = computed[active], map = KK().map; if (!c || !map) return;
   const pts = c.items.filter(i => i.pt).map(i => i.pt);
   c.items.forEach(i => { if (i.leg && i.leg.geom) pts.push(...i.leg.geom) });
@@ -251,14 +302,17 @@ function fitDay() {
 let wantFit = true;
 /* ---------- visning ---------- */
 let recomputeSeq = 0;
-async function recompute() {
-  const seq = ++recomputeSeq;
-  render();
-  const res = [];
-  for (const d of plan.data.dager) res.push(await computeDay(d));
-  if (seq !== recomputeSeq) return;
-  computed = res; render(); drawPlan();
-  if (wantFit) { wantFit = false; fitDay() }
+function recompute() {
+  computing = (async () => {
+    const seq = ++recomputeSeq;
+    render();
+    const res = [];
+    for (const d of plan.data.dager) res.push(await computeDay(d));
+    if (seq !== recomputeSeq) return;
+    computed = res; render(); drawPlan();
+    if (wantFit) { wantFit = false; fitDay() }
+  })();
+  return computing;
 }
 function renderPicker() {
   const sel = $("plPick"); if (!sel) return;
@@ -274,7 +328,7 @@ function render() {
   const ro = readonly ? "disabled" : "";
   P.innerHTML = `
   <div class="plhead">
-    <div class="plrow"><select id="plPick" aria-label="Velg rute"></select><button type="button" class="btn" id="plNew">Ny rute</button></div>
+    <div class="plrow"><select id="plPick" aria-label="Velg rute"></select><button type="button" class="btn" id="plNew">Ny rute</button><button type="button" class="btn" id="plIcs" title="Last ned som kalenderfil for Outlook">Til Outlook</button></div>
     <div class="plrow"><input id="plTitle" class="pltitle" value="${esc(plan.tittel)}" aria-label="Navn på ruten" ${ro}></div>
     ${readonly ? `<div class="box warn">Ruten er laget av ${esc(plan.laget_av)}. Du kan se den, men ikke endre den.</div>` : ""}
     <div class="plrow small">
@@ -282,7 +336,7 @@ function render() {
       <label class="chk"><input type="checkbox" id="plPause" ${D.pause ? "checked" : ""} ${ro}> 30 min pause per 4 t kjøring</label>
     </div>
     <div class="plsum">${D.dager.length} dag${D.dager.length > 1 ? "er" : ""} · ${tot.v} besøk · ${km(tot.km)} · kjøring ${dur(tot.drive)} <span class="status" id="plStatus"></span></div>
-    <div class="pltabs" role="tablist">${D.dager.map((d, i) => `<button type="button" role="tab" class="chip" data-day="${i}" aria-pressed="${i === active}">Dag ${i + 1} · ${esc(dato(d.dato))}</button>`).join("")}${readonly ? "" : `<button type="button" class="chip add" id="plAddDay">+ Dag</button>`}</div>
+    <div class="pltabs" role="tablist"><button type="button" class="chip ovbtn" id="plOverview" aria-pressed="${overview}">Hele ruta</button>${D.dager.map((d, i) => `<button type="button" role="tab" class="chip" data-day="${i}" aria-pressed="${!overview && i === active}"><span class="dot" style="background:${dayColor(i)}"></span>Dag ${i + 1} · ${esc(dato(d.dato))}</button>`).join("")}${readonly ? "" : `<button type="button" class="chip add" id="plAddDay">+ Dag</button>`}</div>
   </div>
   <div class="plbody">
     ${dayHtml(D.dager[active], c, ro)}
@@ -351,12 +405,14 @@ function dayHtml(d, c, ro) {
 function bind() {
   const D = plan.data, d = D.dager[active];
   $("plPick").onchange = e => { if (e.target.value) openPlan(e.target.value) };
+  $("plIcs").onclick = exportIcs;
+  $("plOverview").onclick = () => { overview = !overview; hotelMode = false; clearHotels(); render(); drawPlan(); fitDay() };
   $("plNew").onclick = () => { plan = newPlan(); plan.laget_av = me().epost; readonly = false; active = 0; computed = []; recompute(); };
-  if (readonly) { document.querySelectorAll("#planner [data-day]").forEach(b => b.onclick = () => { active = +b.dataset.day; hotelMode = false; render(); drawPlan(); fitDay() }); return }
+  if (readonly) { document.querySelectorAll("#planner [data-day]").forEach(b => b.onclick = () => { overview = false; active = +b.dataset.day; hotelMode = false; render(); drawPlan(); fitDay() }); return }
   $("plTitle").oninput = e => { plan.tittel = e.target.value; scheduleSave() };
   $("plMin").onchange = e => { D.besokMin = Math.max(5, +e.target.value || 60); scheduleSave() };
   $("plPause").onchange = e => { D.pause = e.target.checked; change() };
-  document.querySelectorAll("#planner [data-day]").forEach(b => b.onclick = () => { active = +b.dataset.day; hotelMode = false; clearHotels(); render(); drawPlan(); fitDay() });
+  document.querySelectorAll("#planner [data-day]").forEach(b => b.onclick = () => { overview = false; active = +b.dataset.day; hotelMode = false; clearHotels(); render(); drawPlan(); fitDay() });
   $("plAddDay").onclick = addDay;
   $("dDate").onchange = e => { d.dato = e.target.value; scheduleSave(); render() };
   if ($("dDel")) $("dDel").onclick = () => {
@@ -402,6 +458,51 @@ function bind() {
   };
 }
 
+
+/* ---------- eksport til kalender (.ics) ---------- */
+function icsEsc(t) { return String(t || "").replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/([,;])/g, "\\$1") }
+function icsTime(dateStr, min) {
+  const d = new Date(dateStr + "T00:00:00"); d.setMinutes(Math.round(min));
+  const p = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}T${p(d.getHours())}${p(d.getMinutes())}00`;
+}
+function fold(line) { const out = []; while (line.length > 74) { out.push(line.slice(0, 74)); line = " " + line.slice(74) } out.push(line); return out.join("\r\n") }
+function buildIcs() {
+  const sum = summary(), now = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "");
+  const L = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Lindab Kundekart Nord//NO", "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
+    "BEGIN:VTIMEZONE", "TZID:Europe/Oslo", "BEGIN:STANDARD", "DTSTART:19701025T030000", "RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU", "TZOFFSETFROM:+0200", "TZOFFSETTO:+0100", "END:STANDARD",
+    "BEGIN:DAYLIGHT", "DTSTART:19700329T020000", "RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU", "TZOFFSETFROM:+0100", "TZOFFSETTO:+0200", "END:DAYLIGHT", "END:VTIMEZONE"];
+  let uid = 0;
+  const ev = (date, a, b, title, loc, desc) => {
+    if (b - a < 1) return;
+    L.push("BEGIN:VEVENT", `UID:${(plan.id || "ny")}-${uid++}@kundekart-nord`, `DTSTAMP:${now}`,
+      `DTSTART;TZID=Europe/Oslo:${icsTime(date, a)}`, `DTEND;TZID=Europe/Oslo:${icsTime(date, b)}`,
+      fold(`SUMMARY:${icsEsc(title)}`), ...(loc ? [fold(`LOCATION:${icsEsc(loc)}`)] : []), ...(desc ? [fold(`DESCRIPTION:${icsEsc(desc)}`)] : []), "END:VEVENT");
+  };
+  plan.data.dager.forEach((d, i) => {
+    const s = sum[i]; if (!s) return;
+    s.stopp.forEach(x => {
+      const arr = x.ankomst;
+      if (x.kjoring > 0) ev(d.dato, arr - x.kjoring, arr, `Kjøring til ${x.navn}`, "", `${plan.tittel} · dag ${i + 1}`);
+      if (x.type === "kunde") ev(d.dato, x.fra, x.til, `Kundebesøk: ${x.navn}`, x.sted, `Kundenr. ${x.k} · ${plan.tittel} · dag ${i + 1}`);
+      else if (x.type === "hotell") ev(d.dato, arr, arr + 15, `Hotell: ${x.navn}`, x.sted, `Innsjekk · ${plan.tittel}`);
+    });
+  });
+  L.push("END:VCALENDAR");
+  return L.join("\r\n") + "\r\n";
+}
+async function exportIcs() {
+  await computing;
+  if (!computed.length) return;
+  const blob = new Blob([buildIcs()], { type: "text/calendar;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = (plan.tittel || "rute").replace(/[^\p{L}\p{N} _-]+/gu, "").trim().replace(/\s+/g, "_") + ".ics";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  flash("Kalenderfila er lastet ned. Åpne den for å legge hendelsene inn i Outlook.");
+}
+
 /* ---------- av/på ---------- */
 async function toggle(force) {
   open = force ?? !open;
@@ -409,7 +510,7 @@ async function toggle(force) {
   $("tPlan").setAttribute("aria-pressed", open);
   KK().closeDetail();
   KK().pick = open ? (k => { if (readonly) return false; addStop(k); return true }) : null;
-  if (!open) { if (planLayer) planLayer.clearLayers(); clearHotels(); hotelMode = false; setTimeout(() => KK().invalidate(), 0); return }
+  if (!open) { if (planLayer) planLayer.clearLayers(); if (legendEl) legendEl.hidden = true; clearHotels(); hotelMode = false; setTimeout(() => KK().invalidate(), 0); return }
   if (window.innerWidth <= 760) { $("main").dataset.view = "list" }
   render();
   await loadList(true);
@@ -421,5 +522,5 @@ async function toggle(force) {
   setTimeout(() => KK().invalidate(), 0);
 }
 document.addEventListener("click", e => { if (e.target.closest("#tPlan")) toggle() });
-window.KKPlan = { toggle, computeDay, leg, hm, dur, get plan() { return plan }, get computed() { return computed } };
+window.KKPlan = { toggle, openPlan, computeDay, leg, hm, dur, buildIcs, get open() { return open }, get plan() { return plan }, get computed() { return computed } };
 })();

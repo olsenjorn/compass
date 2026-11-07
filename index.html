@@ -20,7 +20,7 @@ body{margin:0}
   --profil:#1d5aa8; --vent:#b8572a; --stack:#1b2620;
   --segA:#0d6b5c; --segB:#4f8a3a; --segC:#a8811d; --segD:#8a948f;
   --warn-bg:#fbf1dc; --warn-ink:#6f5210;
-  --kom-line:rgba(24,33,43,.45); --charge:#c08a12; --hotel:#7a3e9d; --late:#b3261e;
+  --kom-line:rgba(24,33,43,.45); --charge:#c08a12; --hotel:#7a3e9d; --late:#b3261e; --c0:#1d5aa8; --c1:#b8572a; --c2:#2f7d4f; --c3:#7a3e9d; --c4:#a8811d; --c5:#0f6e8c;
   --f-display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
   --f-body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
 }
@@ -31,7 +31,7 @@ body{margin:0}
   --accent:#7fb0ec; --accent-ink:#0b1a2c; --accent-soft:#1a2c44;
   --profil:#7fb0ec; --vent:#e48a5c; --stack:#e4ebe7;
   --segA:#4fbfa8; --segB:#8cc271; --segC:#d9b04b; --segD:#7f8b86;
-  --kom-line:rgba(227,233,239,.45); --charge:#e3b23c; --hotel:#c39be0; --late:#f2a49c; --warn-bg:#352a12; --warn-ink:#ecd193; color-scheme:dark}}
+  --kom-line:rgba(227,233,239,.45); --charge:#e3b23c; --hotel:#c39be0; --late:#f2a49c; --c0:#7fb0ec; --c1:#e48a5c; --c2:#7cc79a; --c3:#c39be0; --c4:#d9b04b; --c5:#5fc1db; --warn-bg:#352a12; --warn-ink:#ecd193; color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#10151b; --panel:#161d25; --ink:#e3e9ef; --muted:#97a3b0; --line:#28323d;
   --sea:#0e141a; --land:#1b232c; --land-line:#3a4653;
@@ -39,7 +39,7 @@ body{margin:0}
   --accent:#7fb0ec; --accent-ink:#0b1a2c; --accent-soft:#1a2c44;
   --profil:#7fb0ec; --vent:#e48a5c; --stack:#e4ebe7;
   --segA:#4fbfa8; --segB:#8cc271; --segC:#d9b04b; --segD:#7f8b86;
-  --kom-line:rgba(227,233,239,.45); --charge:#e3b23c; --hotel:#c39be0; --late:#f2a49c; --warn-bg:#352a12; --warn-ink:#ecd193; color-scheme:dark}
+  --kom-line:rgba(227,233,239,.45); --charge:#e3b23c; --hotel:#c39be0; --late:#f2a49c; --c0:#7fb0ec; --c1:#e48a5c; --c2:#7cc79a; --c3:#c39be0; --c4:#d9b04b; --c5:#5fc1db; --warn-bg:#352a12; --warn-ink:#ecd193; color-scheme:dark}
 [hidden]{display:none!important}
 html,body{height:100%}
 body{background:var(--bg);color:var(--ink);font:15px/1.45 var(--f-body);display:flex;flex-direction:column;overflow:hidden}
@@ -256,6 +256,60 @@ body.planning .legend{display:none}
 .daysum{font-size:13px;color:var(--ink);background:var(--accent-soft);border-radius:8px;padding:8px 10px;font-variant-numeric:tabular-nums}
 .flash{position:sticky;bottom:8px;background:var(--ink);color:var(--panel);border-radius:8px;padding:8px 12px;font-size:13px}
 
+/* kalender */
+.calendar{position:absolute;inset:0;z-index:1100;background:var(--panel);display:flex;flex-direction:column;overflow:hidden}
+.chead{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.chead h2{margin:0;font:700 22px var(--f-display);flex:1;min-width:0}
+.cnav,.cview{display:flex;gap:6px;align-items:center}
+.chead .x{border:0;background:none;font-size:24px;cursor:pointer;color:var(--muted);width:36px;height:36px}
+.clegend{display:flex;gap:6px 14px;flex-wrap:wrap;padding:6px 16px;font-size:13px;color:var(--muted);border-bottom:1px solid var(--line)}
+.clegend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px;background:var(--cc)}
+.cpad{padding:16px}
+.c0{--cc:var(--c0)}.c1{--cc:var(--c1)}.c2{--cc:var(--c2)}.c3{--cc:var(--c3)}.c4{--cc:var(--c4)}.c5{--cc:var(--c5)}
+.cweek{flex:1;display:grid;grid-template-columns:repeat(7,minmax(118px,1fr));overflow:auto;min-height:0}
+.ccol{border-right:1px solid var(--line);display:flex;flex-direction:column;gap:8px;padding:8px;min-width:0}
+.ccol.today{background:var(--accent-soft)}
+.cdh{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);display:flex;gap:6px;align-items:baseline}
+.cdh b{font:700 20px var(--f-display);color:var(--ink);letter-spacing:0}
+.ccard{display:flex;flex-direction:column;gap:4px;text-align:left;border:1px solid var(--line);border-left:4px solid var(--cc);background:var(--bg);border-radius:8px;padding:8px 9px;cursor:pointer;color:var(--ink);font-size:13px;min-width:0}
+.ccard:hover{border-color:var(--cc)}
+.cct{display:flex;flex-direction:column;gap:1px}
+.cct b{font-weight:600;font-size:14px;line-height:1.25}
+.cct .who{font-size:12px;color:var(--cc);font-weight:600}
+.ccm{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.ccard ol{margin:2px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:2px}
+.ccard li{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ccard li .t{font-variant-numeric:tabular-nums;color:var(--muted);margin-right:6px}
+.ccard .more{color:var(--muted)}
+.cch{font-size:12px;color:var(--hotel);font-weight:600}
+.cmonth{flex:1;display:flex;flex-direction:column;min-height:0;overflow:auto}
+.cmh{display:grid;grid-template-columns:repeat(7,1fr);font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);border-bottom:1px solid var(--line)}
+.cmh span{padding:6px 8px}
+.cgrid{flex:1;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));grid-auto-rows:minmax(96px,1fr)}
+.ccell{border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:4px;display:flex;flex-direction:column;gap:3px;min-width:0;overflow:hidden}
+.ccell.out{background:var(--bg);opacity:.6}
+.ccell.today .cn{background:var(--accent);color:var(--accent-ink);border-radius:999px;padding:0 7px}
+.cn{font:600 13px var(--f-display);align-self:flex-start}
+.cev{display:flex;flex-direction:column;text-align:left;border:0;border-left:3px solid var(--cc);background:color-mix(in srgb,var(--cc) 14%,var(--panel));border-radius:4px;padding:2px 5px;cursor:pointer;color:var(--ink);font-size:12px;min-width:0}
+.cev b,.cev span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cev span{color:var(--muted);font-size:11px}
+.ccell .more{font-size:11px;color:var(--muted)}
+.daylegend{position:absolute;left:10px;bottom:22px;z-index:600;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;box-shadow:0 4px 14px rgba(0,0,0,.15);display:flex;flex-direction:column;gap:4px;max-height:60%;overflow:auto;min-width:220px;font-size:13px}
+.daylegend b{font:700 16px var(--f-display);margin-bottom:2px}
+.daylegend button{display:grid;grid-template-columns:auto 1fr;gap:0 8px;align-items:center;text-align:left;border:0;background:none;padding:3px 4px;border-radius:6px;cursor:pointer;color:var(--ink)}
+.daylegend button:hover{background:var(--bg)}
+.daylegend button span{grid-column:2;font-size:12px;color:var(--muted)}
+.daylegend i{width:22px;height:6px;border-radius:3px;border:0;border-right:8px solid;display:inline-block}
+.daylegend .lgnote{font-size:12px;color:var(--muted);margin-top:4px;display:flex;gap:8px;align-items:center}
+.daylegend .lgnote .dk{width:22px;height:6px;border-radius:3px;background:linear-gradient(90deg,#123a6d 30%,#1d5aa8 30%)}
+.pn.ov{border-color:#fff}
+.pltabs .chip .dot{width:9px;height:9px;border-radius:50%}
+.ovbtn[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--panel)}
+
+@media (max-width:1560px){.top .brand small{display:none}}
+@media (max-width:1320px){.who span.nm{display:none}}
+@media (max-width:760px){.cweek{grid-template-columns:1fr;grid-auto-rows:auto}.ccol{border-right:0;border-bottom:1px solid var(--line)}.cgrid{grid-auto-rows:minmax(64px,auto)}.cev span{display:none}}
+
 @media (max-width:760px){.logo{height:28px}.top .brand .ttl{font-size:19px}}
 
 @media (max-width:760px){.who span.nm{display:none}}
@@ -320,6 +374,7 @@ body.planning .legend{display:none}
   </div>
   <div class="who"><span class="nm">Innlogget som <b id="who"></b></span>
     <button type="button" class="linkbtn" id="tPlan" aria-pressed="false">Planlegger</button>
+    <button type="button" class="linkbtn" id="tCal" aria-pressed="false">Kalender</button>
     <button type="button" class="linkbtn" id="tAdr" hidden>Finn adresser</button>
     <button type="button" class="linkbtn" id="pwBtn">Bytt passord</button>
     <button type="button" class="linkbtn" id="logout">Logg ut</button></div>
@@ -369,6 +424,7 @@ body.planning .legend{display:none}
       <div class="note">Plassert på postnummer eller poststed, ikke gateadresse.</div>
     </div>
     <div class="detail" id="detail" hidden></div>
+    <div class="calendar" id="calendar" hidden aria-label="Kalender"></div>
     <div class="cpanel" id="cpanel" hidden></div>
   </section>
 </div>
@@ -395,5 +451,6 @@ body.planning .legend{display:none}
 <script src="app.js"></script>
 <script src="adresser.js"></script>
 <script src="planner.js"></script>
+<script src="calendar.js"></script>
 </body>
 </html>
