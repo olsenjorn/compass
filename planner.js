@@ -75,14 +75,15 @@ async function ensureHome(day) {
     if (g) { day.start.lat = g.lat; day.start.lon = g.lon; day.start.navn = `${g.adresse}, ${g.postnr} ${g.poststed}`; store.set("kk_home", { adresse: day.start.navn, lat: g.lat, lon: g.lon }) }
   }
 }
-async function computeDay(day) {
+const SYM = { hjem: "⌂", hotell: "H", fly: "✈" };
+async function computeDay(day, di = 0) {
   await ensureHome(day);
   const D = plan.data, out = { items: [], driveMin: 0, km: 0, visits: 0, est: false, end: null, warn: [] };
   let t = toMin(day.start.kl) ?? 480;
   if (day.start.type === "fly") t += FLY_BUFFER[day.start.transport || "leiebil"] || 15;
   const s = day.start;
-  out.items.push({ kind: "start", n: 1, pt: s.lat != null ? [s.lat, s.lon] : null, t });
-  let prev = out.items[0].pt, n = 1;
+  out.items.push({ kind: "start", n: SYM[s.type] || "S", pt: s.lat != null ? [s.lat, s.lon] : null, t });
+  let prev = out.items[0].pt, n = 0;
   const legTo = async (pt) => {
     if (!prev || !pt) return null;
     const L = await leg(prev, pt);
@@ -101,16 +102,15 @@ async function computeDay(day) {
     const late = want != null && arr > want + 1 ? arr - want : 0;
     const len = +st.min || D.besokMin || 60;
     n++;
-    out.items.push({ kind: "kunde", n, st, c, pt, leg: L, arr, begin, end: begin + len, wait: begin - arr, late });
+    out.items.push({ kind: "kunde", n: `${di + 1}.${n}`, st, c, pt, leg: L, arr, begin, end: begin + len, wait: begin - arr, late });
     out.visits++;
     t = begin + len; if (pt) prev = pt;
   }
   if (day.slutt) {
     const pt = day.slutt.lat != null ? [day.slutt.lat, day.slutt.lon] : null;
     const L = await legTo(pt);
-    n++;
     t = t + (L ? L.total : 0);
-    out.items.push({ kind: "slutt", n, pt, leg: L, arr: t });
+    out.items.push({ kind: "slutt", n: SYM[day.slutt.type] || "H", pt, leg: L, arr: t });
   }
   out.end = t;
   if (out.end > 22 * 60) out.warn.push("Dagen slutter etter kl. 22.");
@@ -270,9 +270,9 @@ function drawPlan() {
     c.items.forEach(it => {
       if (!it.pt) return;
       const bg = it.kind === "kunde" ? col : dark;
-      const label = overview ? (it.kind === "start" ? `D${di + 1}` : it.n) : it.n;
+      const label = it.n;
       const cls = it.kind === "start" ? "pn start" : it.kind === "slutt" ? "pn end" : "pn";
-      L.marker(it.pt, { icon: L.divIcon({ className: "", html: `<div class="${cls}${overview ? " ov" : ""}" style="${overview ? `background:${bg};color:#fff` : ""}">${label}</div>`, iconSize: [28, 28], iconAnchor: [14, 14] }), zIndexOffset: 1000 + (act ? 100 : 0), interactive: false })
+      L.marker(it.pt, { icon: L.divIcon({ className: "", html: `<div class="${cls}${overview ? " ov" : ""}" style="${overview ? `background:${bg};color:#fff` : ""}">${label}</div>`, iconSize: null, iconAnchor: [16, 14] }), zIndexOffset: 1000 + (act ? 100 : 0), interactive: false })
         .addTo(planLayer);
     });
   });
@@ -307,7 +307,7 @@ function recompute() {
     const seq = ++recomputeSeq;
     render();
     const res = [];
-    for (const d of plan.data.dager) res.push(await computeDay(d));
+    for (const [i, d] of plan.data.dager.entries()) res.push(await computeDay(d, i));
     if (seq !== recomputeSeq) return;
     computed = res; render(); drawPlan();
     if (wantFit) { wantFit = false; fitDay() }
@@ -367,7 +367,7 @@ function dayHtml(d, c, ro) {
   const startLbl = s.type === "fly" ? `Landing ${esc(s.flyplass || "")} ${esc(s.kl)} · ${s.transport === "taxi" ? "taxi" : "leiebil"}, kjører ${hm(it ? it[0].t : null)}` : `Avreise ${esc(s.kl)}`;
   let h = `<div class="day">
     <div class="plrow small"><label>Dato <input type="date" id="dDate" value="${esc(d.dato)}" ${ro}></label>${!ro && plan.data.dager.length > 1 ? `<button type="button" class="linkbtn" id="dDel">Fjern dagen</button>` : ""}</div>
-    <div class="step start"><span class="pn start">1</span><div class="sbody"><b>${s.type === "fly" ? "Fly" : s.type === "hotell" ? "Fra hotell" : "Hjemmefra"}</b><div class="mut">${startLbl}</div><div class="plrow wrap">${startHtml(d, ro)}</div></div></div>`;
+    <div class="step start"><span class="pn start">${SYM[s.type] || "S"}</span><div class="sbody"><b>${s.type === "fly" ? "Fly" : s.type === "hotell" ? "Fra hotell" : "Hjemmefra"}</b><div class="mut">${startLbl}</div><div class="plrow wrap">${startHtml(d, ro)}</div></div></div>`;
   if (!it) h += `<div class="status">Regner ut kjøretider …</div>`;
   else {
     it.filter(x => x.kind === "kunde").forEach((x, i) => {
