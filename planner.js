@@ -24,6 +24,7 @@ const PAUSE_ETTER = 240, PAUSE_MIN = 30;           // 30 min pause per påbegynt
 const FLY_BUFFER = { leiebil: 20, taxi: 10 };
 
 /* ---------- tid ---------- */
+const ceil15 = v => Math.ceil(Math.round(v) / 15) * 15; // runder opp til nærmeste kvarter
 const toMin = s => { const m = String(s || "").match(/^(\d{1,2}):(\d{2})/); return m ? +m[1] * 60 + +m[2] : null };
 const hm = v => { if (v == null) return "–"; v = Math.round(v); const d = Math.floor(v / 1440), r = ((v % 1440) + 1440) % 1440; return `${String(Math.floor(r / 60)).padStart(2, "0")}:${String(r % 60).padStart(2, "0")}${d > 0 ? ` (+${d})` : ""}` };
 const dur = v => { v = Math.round(v); const h = Math.floor(v / 60), m = v % 60; return h ? `${h} t${m ? ` ${m} min` : ""}` : `${m} min` };
@@ -96,7 +97,7 @@ async function computeDay(day, di = 0) {
     const c = kunde(st.k);
     const pt = c && c.lat != null ? [c.lat, c.lon] : null;
     const L = await legTo(pt);
-    const arr = t + (L ? L.total : 0);
+    const arr = L ? ceil15(t + L.total) : t;
     const want = toMin(st.avtalt);
     const begin = want != null && want > arr ? want : arr;
     const late = want != null && arr > want + 1 ? arr - want : 0;
@@ -109,7 +110,7 @@ async function computeDay(day, di = 0) {
   if (day.slutt) {
     const pt = day.slutt.lat != null ? [day.slutt.lat, day.slutt.lon] : null;
     const L = await legTo(pt);
-    t = t + (L ? L.total : 0);
+    t = L ? ceil15(t + L.total) : t;
     out.items.push({ kind: "slutt", n: SYM[day.slutt.type] || "H", pt, leg: L, arr: t });
   }
   out.end = t;
