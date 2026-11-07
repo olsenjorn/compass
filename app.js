@@ -23,10 +23,11 @@ let GEO = null;          // {kommuner, regmap, reglab, poststeder}
 let RAW = [];            // kunder fra databasen
 let RETT = {};           // kundenr -> rettelse
 let ADR = {};            // kundenr -> besøksadresse (kunde_adresse)
+let INFO = {};           // kundenr -> kjede, konstellasjon, vbl, byggvare (kunde_info)
 let DATA = [];
 let ME = null;           // {epost, navn, rolle}
 let CHARGERS = store.get("kk_chargers", null);
-const st = { q: "", reg: new Set(), by: new Set(), eier: new Set(), kat: new Set(), seg: new Set(), sort: store.get("kk_sort", "reg"), sel: null };
+const st = { q: "", reg: new Set(), by: new Set(), eier: new Set(), kat: new Set(), seg: new Set(), kj: new Set(), ko: new Set(), flag: new Set(), sort: store.get("kk_sort", "reg"), sel: null };
 
 /* ---------------- innlogging ---------------- */
 function showLogin(msg) {
@@ -70,11 +71,12 @@ async function start() {
         ["kommuner", "regmap", "reglab", "poststeder"].map(f => fetch(`data/${f}.json`).then(r => r.json())));
       GEO = { kommuner, regmap, reglab, poststeder };
     }
-    const [me, k, r, a] = await Promise.all([
+    const [me, k, r, a, inf] = await Promise.all([
       sb.from("tilgang").select("epost,navn,rolle").maybeSingle(),
       sb.from("kunder").select("*"),
       sb.from("sted_rettelse").select("*"),
-      sb.from("kunde_adresse").select("*")
+      sb.from("kunde_adresse").select("*"),
+      sb.from("kunde_info").select("*")
     ]);
     if (k.error) throw k.error;
     ME = me.data;
@@ -88,6 +90,7 @@ async function start() {
     RAW = k.data.map(fromDb);
     RETT = {}; (r.data || []).forEach(x => RETT[x.kundenr] = x);
     ADR = {}; (a.data || []).forEach(x => ADR[x.kundenr] = x);
+    INFO = {}; (inf.data || []).forEach(x => INFO[x.kundenr] = x);
     $("tAdr").hidden = !(ME.rolle === "admin" || ME.rolle === "leder");
     $("lstatus").hidden = true;
     initMap();
@@ -104,6 +107,8 @@ function fromDb(c) {
     adr: c.besoksadresse || "", pnr: c.postnr || "", br: c.bransje || "", st: c.status || "" };
 }
 function applyFix(c) {
+  const i = INFO[c.k];
+  c = Object.assign({}, c, { kj: i && i.kjede || "", ko: i && i.konstellasjon || "", vbl: !!(i && i.vbl), bv: !!(i && i.byggvare) });
   const a = ADR[c.k];
   if (a && a.lat != null) return Object.assign({}, c, { adr: a.adresse, pnr: a.postnr || "", ps: a.poststed || c.ps, lat: a.lat, lon: a.lon, r: a.region || c.r, pr: "adresse", orgnr: a.orgnr, akilde: a.kilde, asikk: a.sikkerhet });
   if (a) c = Object.assign({}, c, { adr: a.adresse, pnr: a.postnr || "", orgnr: a.orgnr, akilde: a.kilde, asikk: a.sikkerhet });
@@ -113,13 +118,15 @@ function applyFix(c) {
 
 /* ---------------- filtre og liste ---------------- */
 const FKEYS = { reg: { label: "Region", field: "r", none: "Mangler sted" }, by: { label: "By / poststed", field: "ps", none: "Mangler sted", search: true },
-  eier: { label: "Eier", field: "e" }, kat: { label: "Kategori", field: "kat" } };
+  eier: { label: "Eier", field: "e" }, kat: { label: "Kategori", field: "kat" },
+  kj: { label: "Kjede", field: "kj", none: "Uten kjede", search: true }, ko: { label: "Konstellasjon", field: "ko", none: "Uten konstellasjon" } };
+const FLAGS = { vbl: "VBL-medlem", bv: "Byggvareforhandler" };
 const NONE = "__none";
 function loadFilters() {
   const f = store.get("kk_filters", null);
-  ["reg", "by", "eier", "kat", "seg"].forEach(k => st[k] = new Set(f && Array.isArray(f[k]) ? f[k] : []));
+  ["reg", "by", "eier", "kat", "seg", "kj", "ko", "flag"].forEach(k => st[k] = new Set(f && Array.isArray(f[k]) ? f[k] : []));
 }
-function saveFilters() { store.set("kk_filters", { reg: [...st.reg], by: [...st.by], eier: [...st.eier], kat: [...st.kat], seg: [...st.seg] }) }
+function saveFilters() { store.set("kk_filters", Object.fromEntries(["reg", "by", "eier", "kat", "seg", "kj", "ko", "flag"].map(k => [k, [...st[k]]]))) }
 loadFilters();
 function count(key) { const m = {}; DATA.forEach(c => { const v = c[key] || NONE; m[v] = (m[v] || 0) + 1 }); return m }
 function optionsFor(k) {
@@ -151,6 +158,7 @@ function buildFilters() {
       <button type="button" class="msbtn" aria-haspopup="true" aria-expanded="false" data-k="${k}">${msButtonText(k)}<span class="caret" aria-hidden="true">▾</span></button>
       <div class="mspop" hidden></div>`;
   });
+  $("fFlag").innerHTML = `<span class="seglbl">Vis bare</span>` + Object.entries(FLAGS).map(([k, l]) => `<button type="button" class="chip" data-flag="${k}" aria-pressed="${st.flag.has(k)}">${l} <span class="n">${DATA.filter(c => c[k]).length}</span></button>`).join("");
   $("fSeg").innerHTML = `<span class="seglbl">Segment</span>` +
     ["A", "B", "C", "D"].map(s => `<button type="button" class="chip" data-seg="${s}" aria-pressed="${st.seg.has(s)}"><span class="dot" style="background:var(--seg${s})"></span>${s}</button>`).join("");
   syncFromState();
@@ -196,6 +204,7 @@ function renderActive() {
   const chips = [];
   Object.keys(FKEYS).forEach(k => [...st[k]].forEach(v => chips.push({ k, v, label: v === NONE ? FKEYS[k].none : v })));
   [...st.seg].sort().forEach(v => chips.push({ k: "seg", v, label: "Segment " + v }));
+  [...st.flag].forEach(v => chips.push({ k: "flag", v, label: FLAGS[v] }));
   if (st.q.trim()) chips.push({ k: "q", v: st.q, label: `«${st.q.trim()}»` });
   const A = $("activeF");
   A.hidden = !chips.length;
@@ -208,7 +217,9 @@ function filtered() {
   const inSet = (set, v) => !set.size || set.has(v || NONE);
   return DATA.filter(c => {
     if (q && !(c.n.toLowerCase().includes(q) || c.k.includes(q) || c.ps.toLowerCase().includes(q) || c.kom.toLowerCase().includes(q) || c.br.toLowerCase().includes(q) || (c.adr || "").toLowerCase().includes(q))) return false;
-    return inSet(st.reg, c.r) && inSet(st.by, c.ps) && inSet(st.eier, c.e) && inSet(st.kat, c.kat) && inSet(st.seg, c.s);
+    if (st.flag.has("vbl") && !c.vbl) return false;
+    if (st.flag.has("bv") && !c.bv) return false;
+    return inSet(st.reg, c.r) && inSet(st.by, c.ps) && inSet(st.eier, c.e) && inSet(st.kat, c.kat) && inSet(st.seg, c.s) && inSet(st.kj, c.kj) && inSet(st.ko, c.ko);
   });
 }
 function sorted(arr) {
@@ -305,7 +316,7 @@ function renderMap(arr, fit) {
   if (fit && pts.length) {
     const np = pts.filter(p => p[0] > 64.5 && p[0] < 72);
     const b = L.latLngBounds(np.length && !st.reg.has("Utenfor Nord-Norge") && !st.reg.has("Svalbard") ? np : pts);
-    lastBounds = [b.pad(.2), pts.length === 1 ? 12 : 11];
+    lastBounds = [b.pad(.2), pts.length === 1 ? 11 : 11];
     if (map.getSize().x > 0) map.fitBounds(lastBounds[0], { maxZoom: lastBounds[1] });
   }
   komLayer.setStyle(komStyle);
@@ -345,6 +356,9 @@ function select(k, pan = true) {
       ${c.br ? `<dt>Bransje</dt><dd>${esc(c.br.replace(/;/g, ", "))}</dd>` : ""}
       ${c.st ? `<dt>Status</dt><dd>${esc(c.st)}</dd>` : ""}
       <dt>Segment</dt><dd>${esc(c.s)}</dd>
+      ${c.kj ? `<dt>Kjede</dt><dd>${esc(c.kj)}</dd>` : ""}
+      ${c.ko ? `<dt>Konstellasjon</dt><dd>${esc(c.ko)}</dd>` : ""}
+      ${c.vbl || c.bv ? `<dt>Merket</dt><dd>${[c.vbl ? "VBL-medlem" : "", c.bv ? "Byggvareforhandler" : ""].filter(Boolean).join(" · ")}</dd>` : ""}
       <dt>Omsetning</dt><dd><b>${kr(c.t)}</b></dd>
     </dl>
     <div><div class="bar" title="Profil ${share} %"><span style="width:${share}%"></span><span style="width:${100 - share}%"></span></div>
@@ -353,6 +367,15 @@ function select(k, pan = true) {
       rett ? `<div class="box warn">Sted satt av ${esc(rett.endret_av)}. Plassert midt i ${esc(c.ps)}.</div>` :
       c.pr === "adresse" ? `<div class="status">Adresse fra ${esc(c.akilde || "register")}${c.orgnr ? `, org.nr. ${esc(c.orgnr)}` : ""}${c.asikk && c.asikk !== "høy" ? ` · sikkerhet ${esc(c.asikk)}` : ""}.</div>` :
       c.pr !== "postnr" ? `<div class="box warn">Plassert midt i ${esc(c.ps)}. Nøyaktig plassering krever besøksadresse.</div>` : ""}
+    ${(ME.rolle === "admin" || ME.rolle === "leder") ? `<form id="infoForm" class="infoform">
+      <label class="f">Kjede<input id="iKj" list="kjList" value="${esc(c.kj)}" autocomplete="off"></label>
+      <label class="f">Konstellasjon<input id="iKo" list="koList" value="${esc(c.ko)}" autocomplete="off"></label>
+      <label class="chk"><input type="checkbox" id="iVbl" ${c.vbl ? "checked" : ""}> VBL-medlem</label>
+      <label class="chk"><input type="checkbox" id="iBv" ${c.bv ? "checked" : ""}> Byggvareforhandler</label>
+      <button class="btn" type="submit">Lagre</button><span class="status" id="infoMsg"></span>
+      <datalist id="kjList">${[...new Set(DATA.map(x => x.kj).filter(Boolean))].sort().map(v => `<option value="${esc(v)}">`).join("")}</datalist>
+      <datalist id="koList">${[...new Set(DATA.map(x => x.ko).filter(Boolean))].sort().map(v => `<option value="${esc(v)}">`).join("")}</datalist>
+    </form>` : ""}
     ${(ME.rolle === "admin" || ME.rolle === "leder") ? `<form id="adrForm" class="fixrow">
       <label class="f">Besøksadresse
         <input id="adrIn" placeholder="Gate 1, 9008 Tromsø" value="${esc(c.adr ? c.adr + (c.pnr ? ", " + c.pnr : "") + (c.ps ? " " + c.ps : "") : "")}" autocomplete="off">
@@ -379,6 +402,14 @@ function select(k, pan = true) {
     const { error } = await sb.from("sted_rettelse").delete().eq("kundenr", c.k);
     if (error) { $("fixMsg").textContent = "Kunne ikke fjerne: " + error.message; return }
     delete RETT[c.k]; refreshData(false); select(k, false);
+  };
+  if ($("infoForm")) $("infoForm").onsubmit = async e => {
+    e.preventDefault();
+    const row = { kundenr: c.k, kjede: $("iKj").value.trim() || null, konstellasjon: $("iKo").value.trim() || null, vbl: $("iVbl").checked, byggvare: $("iBv").checked };
+    $("infoMsg").textContent = "Lagrer …";
+    const { data, error } = await sb.from("kunde_info").upsert(row).select().single();
+    if (error) { $("infoMsg").textContent = "Kunne ikke lagre: " + error.message; return }
+    INFO[c.k] = data; refreshData(false); select(k, false);
   };
   if ($("adrForm")) $("adrForm").onsubmit = async e => {
     e.preventDefault();
@@ -494,6 +525,7 @@ document.addEventListener("click", e => {
   if (e.target.closest("#detail, .row, .leaflet-container, .maptools, .legend, .dlg, #cpanel, .ms, .achip, .switch, .top")) return;
   closeDetail();
 });
+$("fFlag").onclick = e => { const b = e.target.closest("[data-flag]"); if (!b) return; const s = b.dataset.flag; st.flag.has(s) ? st.flag.delete(s) : st.flag.add(s); b.setAttribute("aria-pressed", st.flag.has(s)); applyFilters() };
 $("fSeg").onclick = e => { const b = e.target.closest("[data-seg]"); if (!b) return; const s = b.dataset.seg; st.seg.has(s) ? st.seg.delete(s) : st.seg.add(s); b.setAttribute("aria-pressed", st.seg.has(s)); applyFilters() };
 $("activeF").onclick = e => {
   if (e.target.closest(".aclear")) return $("reset").click();
@@ -501,11 +533,12 @@ $("activeF").onclick = e => {
   const k = c.dataset.k, v = c.dataset.v;
   if (k === "q") { st.q = ""; $("q").value = "" } else st[k].delete(v);
   if (k === "seg") document.querySelector(`[data-seg="${v}"]`).setAttribute("aria-pressed", "false");
+  if (k === "flag") document.querySelector(`[data-flag="${v}"]`).setAttribute("aria-pressed", "false");
   if (FKEYS[k]) { const w = $("f" + k[0].toUpperCase() + k.slice(1)); w.querySelector(".msbtn").innerHTML = msButtonText(k) + `<span class="caret" aria-hidden="true">▾</span>` }
   saveFilters(); renderActive(); render(true);
 };
 $("sort").onchange = e => { st.sort = e.target.value; store.set("kk_sort", st.sort); render(false) };
-$("reset").onclick = () => { st.q = ""; ["reg", "by", "eier", "kat", "seg"].forEach(k => st[k].clear()); saveFilters(); buildFilters(); render(true) };
+$("reset").onclick = () => { st.q = ""; ["reg", "by", "eier", "kat", "seg", "kj", "ko", "flag"].forEach(k => st[k].clear()); saveFilters(); buildFilters(); render(true) };
 $("list").onclick = e => { const r = e.target.closest(".row"); if (r) select(r.dataset.k) };
 function showMap() {
   if (window.innerWidth <= 760) {

@@ -196,7 +196,7 @@ label.f select,label.f input{font-size:14px;text-transform:none;letter-spacing:0
 .msph{color:var(--muted)}
 .caret{color:var(--muted);font-size:11px;flex:none}
 .mspop{position:absolute;z-index:900;top:calc(100% + 4px);left:0;width:max(100%,250px);max-width:calc(100vw - 32px);background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.18);display:flex;flex-direction:column;text-transform:none;letter-spacing:0;color:var(--ink)}
-#fBy .mspop,#fKat .mspop{left:auto;right:0}
+#fBy .mspop,#fKat .mspop,#fKo .mspop{left:auto;right:0}
 .mssearch{margin:8px;border:1px solid var(--line);border-radius:6px;padding:6px 8px;background:var(--bg);font-size:14px}
 .mslist{max-height:300px;overflow:auto;padding:4px 0}
 .msopt{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;padding:5px 12px;cursor:pointer;font-size:14px}
@@ -306,6 +306,11 @@ body.planning .legend{display:none}
 .pltabs .chip .dot{width:9px;height:9px;border-radius:50%}
 .ovbtn[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--panel)}
 
+.chip .n{font-size:11px;opacity:.7;font-variant-numeric:tabular-nums}
+.infoform{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:end;border-top:1px solid var(--line);padding-top:8px}
+.infoform .chk{font-size:13px}
+.infoform .btn{justify-self:start}
+
 @media (max-width:1560px){.top .brand small{display:none}}
 @media (max-width:1320px){.who span.nm{display:none}}
 @media (max-width:760px){.cweek{grid-template-columns:1fr;grid-auto-rows:auto}.ccol{border-right:0;border-bottom:1px solid var(--line)}.cgrid{grid-auto-rows:minmax(64px,auto)}.cev span{display:none}}
@@ -395,7 +400,10 @@ body.planning .legend{display:none}
       <div class="f ms" id="fBy"></div>
       <div class="f ms" id="fEier"></div>
       <div class="f ms" id="fKat"></div>
+      <div class="f ms" id="fKj"></div>
+      <div class="f ms" id="fKo"></div>
       <div class="f full chips" role="group" aria-label="Segment" id="fSeg"></div>
+      <div class="f full chips" role="group" aria-label="Vis bare" id="fFlag"></div>
     </div>
     <div class="active" id="activeF" hidden aria-label="Aktive filtre"></div>
     <div class="listhead">
