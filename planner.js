@@ -43,11 +43,13 @@ async function leg(a, b) {
     try {
       const wait = Math.max(0, lastOsrm + 350 - Date.now()); lastOsrm = Date.now() + wait;
       if (wait) await new Promise(r => setTimeout(r, wait));
-      const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${a[1]},${a[0]};${b[1]},${b[0]}?overview=simplified&geometries=geojson`);
+      const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${a[1]},${a[0]};${b[1]},${b[0]}?overview=simplified&geometries=geojson&steps=true`);
       const j = await r.json();
       const rt = j && j.routes && j.routes[0];
       if (!rt) throw new Error("ingen rute");
-      return { min: rt.duration / 60, km: rt.distance / 1000, geom: rt.geometry.coordinates.map(c => [c[1], c[0]]), est: false };
+      const ferger = [];
+      (rt.legs || []).forEach(lg => (lg.steps || []).forEach(st => { if (st.mode === "ferry") ferger.push({ navn: st.name || "Ferge", min: Math.round(st.duration / 60), km: Math.round(st.distance / 1000) }) }));
+      return { min: rt.duration / 60, km: rt.distance / 1000, geom: rt.geometry.coordinates.map(c => [c[1], c[0]]), est: false, ferger };
     } catch (e) {
       const d = hav(a, b) * 1.35;
       return { min: d / 65 * 60, km: d, geom: [a, b], est: true };
@@ -64,7 +66,7 @@ const me = () => (KK().ME || {});
 function newPlan() {
   const home = store.get("kk_home", { adresse: DEFAULT_HOME });
   const d0 = new Date(); d0.setDate(d0.getDate() + 1);
-  return { id: null, tittel: "Ny rute", laget_av: (me().epost || ""), data: { besokMin: 60, pause: true, dager: [newDay(d0.toISOString().slice(0, 10), { type: "hjem", navn: home.adresse, lat: home.lat, lon: home.lon, kl: "06:00" })] } };
+  return { id: null, tittel: "Ny rute", laget_av: (me().epost || ""), data: { besokMin: 60, pause: true, fergeVent: 30, dager: [newDay(d0.toISOString().slice(0, 10), { type: "hjem", navn: home.adresse, lat: home.lat, lon: home.lon, kl: "06:00" })] } };
 }
 function newDay(d, start) { return { dato: d, start, stopp: [], slutt: null } }
 const kunde = k => KK().DATA.find(c => c.k === k);
@@ -79,7 +81,7 @@ async function ensureHome(day) {
 const SYM = { hjem: "⌂", hotell: "H", fly: "✈" };
 async function computeDay(day, di = 0) {
   await ensureHome(day);
-  const D = plan.data, out = { items: [], driveMin: 0, km: 0, visits: 0, est: false, end: null, warn: [] };
+  const D = plan.data, out = { items: [], driveMin: 0, km: 0, visits: 0, est: false, end: null, warn: [], ferger: [] };
   let t = toMin(day.start.kl) ?? 480;
   if (day.start.type === "fly") t += FLY_BUFFER[day.start.transport || "leiebil"] || 15;
   const s = day.start;
@@ -89,9 +91,11 @@ async function computeDay(day, di = 0) {
     if (!prev || !pt) return null;
     const L = await leg(prev, pt);
     const pauses = D.pause ? Math.floor(L.min / PAUSE_ETTER) : 0;
-    const total = L.min + pauses * PAUSE_MIN;
+    const fw = (L.ferger || []).length * (+D.fergeVent || 0);
+    const total = L.min + pauses * PAUSE_MIN + fw;
+    if ((L.ferger || []).length) out.ferger.push(...L.ferger);
     out.driveMin += L.min; out.km += L.km; if (L.est) out.est = true;
-    return { ...L, pauses, total };
+    return { ...L, pauses, total, fw };
   };
   for (const st of day.stopp) {
     const c = kunde(st.k);
@@ -162,7 +166,7 @@ async function loadList(quiet) {
 async function openPlan(id, dayIdx) {
   const { data, error } = await KK().sb.from("ruteplaner").select("*").eq("id", id).single();
   if (error || !data) { setStatus("Fant ikke ruten."); return }
-  plan = { id: data.id, tittel: data.tittel, laget_av: data.laget_av, data: Object.assign({ besokMin: 60, pause: true, dager: [] }, data.data || {}) };
+  plan = { id: data.id, tittel: data.tittel, laget_av: data.laget_av, data: Object.assign({ besokMin: 60, pause: true, fergeVent: 30, dager: [] }, data.data || {}) };
   if (!plan.data.dager.length) plan.data.dager.push(newPlan().data.dager[0]);
   readonly = plan.laget_av !== (me().epost || "");
   active = Math.min(Math.max(0, dayIdx || 0), plan.data.dager.length - 1); hotelMode = false; overview = false; wantFit = true; store.set("kk_plan", id);
@@ -182,7 +186,9 @@ function addStop(k) {
   d.stopp.push({ k, min: plan.data.besokMin || 60, avtalt: "" });
   change();
 }
-function flash(t) { const e = $("plFlash"); if (!e) return; e.textContent = t; e.hidden = false; clearTimeout(flash.t); flash.t = setTimeout(() => e.hidden = true, 3500) }
+let flashMsg = null;
+function flash(t) { flashMsg = { t, until: Date.now() + 3500 }; showFlash(); clearTimeout(flash.tm); flash.tm = setTimeout(() => { flashMsg = null; showFlash() }, 3600) }
+function showFlash() { const e = $("plFlash"); if (!e) return; const on = flashMsg && Date.now() < flashMsg.until; e.hidden = !on; if (on) e.textContent = flashMsg.t }
 function setEnd(slutt) {
   const d = day(); d.slutt = slutt; hotelMode = false; clearHotels();
   // neste dag starter fra hotellet
@@ -240,6 +246,75 @@ function drawHotels(list) {
     .on("click", () => setEnd({ type: "hotell", navn: h.navn, lat: h.lat, lon: h.lon, adr: h.adr })).addTo(hotelLayer));
 }
 
+
+/* ---------- kunder langs ruta ---------- */
+let nearOpen = store.get("kk_near", false), nearKm = store.get("kk_nearkm", 10), nearAB = store.get("kk_nearab", false), nearLayer = null;
+const nf0 = new Intl.NumberFormat("nb-NO");
+const kK = v => v >= 1e6 ? (v / 1e6).toLocaleString("nb-NO", { maximumFractionDigits: 1 }) + " mill." : nf0.format(Math.round(v / 1000)) + " k";
+function routePoly(c) {
+  const pts = [];
+  c.items.forEach(it => { if (it.leg && it.leg.geom && it.leg.geom.length > 1) pts.push(...it.leg.geom); else if (it.pt) pts.push(it.pt) });
+  return pts;
+}
+function distToRoute(p, poly) {
+  const k = Math.cos(p[0] * Math.PI / 180), xy = q => [q[1] * 111.32 * k, q[0] * 110.57];
+  const P = xy(p); let best = Infinity, along = 0, acc = 0;
+  for (let i = 0; i < poly.length - 1; i++) {
+    const A = xy(poly[i]), B = xy(poly[i + 1]), dx = B[0] - A[0], dy = B[1] - A[1], L2 = dx * dx + dy * dy, len = Math.sqrt(L2);
+    const t = L2 ? Math.max(0, Math.min(1, ((P[0] - A[0]) * dx + (P[1] - A[1]) * dy) / L2)) : 0;
+    const d = Math.hypot(P[0] - (A[0] + t * dx), P[1] - (A[1] + t * dy));
+    if (d < best) { best = d; along = acc + t * len }
+    acc += len;
+  }
+  return { d: best, along };
+}
+function nearCustomers() {
+  const c = computed[active]; if (!c) return [];
+  const poly = routePoly(c); if (poly.length < 2) return [];
+  const inPlan = new Set(plan.data.dager.flatMap(d => d.stopp.map(x => x.k)));
+  const pad = nearKm / 110;
+  let s = 90, n = -90, w = 180, e = -180;
+  poly.forEach(p => { s = Math.min(s, p[0]); n = Math.max(n, p[0]); w = Math.min(w, p[1]); e = Math.max(e, p[1]) });
+  const padLon = pad / Math.cos(((s + n) / 2) * Math.PI / 180);
+  return KK().DATA.filter(x => x.lat != null && !inPlan.has(x.k) && (!nearAB || x.s === "A" || x.s === "B") && x.lat >= s - pad && x.lat <= n + pad && x.lon >= w - padLon && x.lon <= e + padLon)
+    .map(x => ({ c: x, ...distToRoute([x.lat, x.lon], poly) })).filter(r => r.d <= nearKm).sort((a, b) => a.along - b.along);
+}
+function addNear(k) {
+  const c = kunde(k), d = day(); if (!c) return;
+  const pt = [c.lat, c.lon], comp = computed[active];
+  const pts = d.stopp.map(x => { const cc = kunde(x.k); return cc ? [cc.lat, cc.lon] : null });
+  const startPt = comp && comp.items[0].pt, endPt = d.slutt && d.slutt.lat != null ? [d.slutt.lat, d.slutt.lon] : null;
+  let bestI = d.stopp.length, bestCost = Infinity;
+  for (let i = 0; i <= d.stopp.length; i++) {
+    const prev = i === 0 ? startPt : pts[i - 1], next = i < d.stopp.length ? pts[i] : endPt;
+    if (!prev) continue;
+    const cost = hav(prev, pt) + (next ? hav(pt, next) - hav(prev, next) : 0);
+    if (cost < bestCost) { bestCost = cost; bestI = i }
+  }
+  d.stopp.splice(bestI, 0, { k, min: plan.data.besokMin || 60, avtalt: "" });
+  flash(`${c.n} lagt inn som besøk ${active + 1}.${bestI + 1}.`);
+  change();
+}
+function nearHtml(ro) {
+  if (ro) return "";
+  const c = computed[active]; if (!c || routePoly(c).length < 2) return "";
+  const list = nearCustomers();
+  return `<div class="near">
+    <div class="nearhead"><button type="button" class="linkbtn" id="nearToggle" aria-expanded="${nearOpen}">${nearOpen ? "▾" : "▸"} Kunder langs ruta (${list.length})</button>
+      <label class="chk"><input type="checkbox" id="nearAB" ${nearAB ? "checked" : ""}> Bare A/B</label><label>innen <select id="nearKm">${[2, 5, 10, 20, 30].map(v => `<option value="${v}" ${v === nearKm ? "selected" : ""}>${v} km</option>`).join("")}</select></label></div>
+    ${nearOpen ? (list.length ? `<div class="nearlist">${list.map(r => `<div class="nrow"><button type="button" class="ib add" data-near="${esc(r.c.k)}" aria-label="Legg ${esc(r.c.n)} til i ruta">+</button>
+        <div><b>${esc(r.c.n)}</b><span>${esc(r.c.ps)} · ${r.d < 1 ? "<1" : r.d.toFixed(r.d < 10 ? 1 : 0)} km fra ruta</span></div>
+        <span class="nmeta"><span class="seg ${esc(r.c.s)}">${esc(r.c.s)}</span>${kK(r.c.t)}</span></div>`).join("")}</div>` : `<div class="status">Ingen andre kunder innen ${nearKm} km fra ruta.</div>`) : ""}
+  </div>`;
+}
+function drawNear() {
+  const map = KK().map; if (!map) return;
+  if (!nearLayer) nearLayer = L.layerGroup().addTo(map);
+  nearLayer.clearLayers();
+  if (!open || !plan || !nearOpen || overview || readonly) return;
+  nearCustomers().forEach(r => L.marker([r.c.lat, r.c.lon], { icon: L.divIcon({ className: "", html: `<div class="nearring"></div>`, iconSize: [30, 30], iconAnchor: [15, 15] }), interactive: false, zIndexOffset: -100 }).addTo(nearLayer));
+}
+
 /* ---------- kart ---------- */
 // Én farge per dag (gjentas etter sju dager). Første og siste etappe tegnes i mørkere nyanse.
 const DAYC = ["#1d5aa8", "#c2410c", "#15803d", "#7e22ce", "#b45309", "#0e7490", "#be185d"];
@@ -248,6 +323,7 @@ function shade(hex, f) { const n = parseInt(hex.slice(1), 16), r = n >> 16, g = 
 let overview = false, legendEl = null;
 function drawPlan() {
   const map = KK().map; if (!map) return;
+  drawNear();
   if (!planLayer) planLayer = L.layerGroup().addTo(map);
   planLayer.clearLayers();
   drawLegend();
@@ -335,6 +411,7 @@ function render() {
     <div class="plrow small">
       <label>Standard besøk <input type="number" id="plMin" min="5" step="5" value="${D.besokMin}" ${ro}> min</label>
       <label class="chk"><input type="checkbox" id="plPause" ${D.pause ? "checked" : ""} ${ro}> 30 min pause per 4 t kjøring</label>
+      <label>Ventetid ferge <input type="number" id="plFerge" min="0" step="5" value="${+D.fergeVent || 0}" ${ro}> min</label>
     </div>
     <div class="plsum">${D.dager.length} dag${D.dager.length > 1 ? "er" : ""} · ${tot.v} besøk · ${km(tot.km)} · kjøring ${dur(tot.drive)} <span class="status" id="plStatus"></span></div>
     <div class="pltabs" role="tablist"><button type="button" class="chip ovbtn" id="plOverview" aria-pressed="${overview}">Hele ruta</button>${D.dager.map((d, i) => `<button type="button" role="tab" class="chip" data-day="${i}" aria-pressed="${!overview && i === active}"><span class="dot" style="background:${dayColor(i)}"></span>Dag ${i + 1} · ${esc(dato(d.dato))}</button>`).join("")}${readonly ? "" : `<button type="button" class="chip add" id="plAddDay">+ Dag</button>`}</div>
@@ -345,6 +422,7 @@ function render() {
   </div>`;
   renderPicker();
   bind();
+  showFlash();
 }
 function startHtml(d, ro) {
   const s = d.start;
@@ -360,7 +438,8 @@ function startHtml(d, ro) {
 function legHtml(L) {
   if (!L) return "";
   if (L.km < 0.2) return `<div class="leg">↓ Samme sted</div>`;
-  return `<div class="leg">↓ Kjøring ${dur(L.min)} · ${km(L.km)}${L.pauses ? ` · + ${L.pauses * PAUSE_MIN} min pause` : ""}${L.est ? ` <span class="est">anslått</span>` : ""}</div>`;
+  const fer = (L.ferger || []).map(f => `<div class="ferry">⛴ ${esc(f.navn)} · overfart ${f.min} min${L.fw ? ` + ${plan.data.fergeVent} min ventetid` : ""} · <a href="https://entur.no" target="_blank" rel="noopener">sjekk avganger</a></div>`).join("");
+  return `<div class="leg">↓ Kjøring ${dur(L.min)} · ${km(L.km)}${L.pauses ? ` · + ${L.pauses * PAUSE_MIN} min pause` : ""}${L.est ? ` <span class="est">anslått</span>` : ""}${fer}</div>`;
 }
 function dayHtml(d, c, ro) {
   const it = c ? c.items : null;
@@ -399,7 +478,8 @@ function dayHtml(d, c, ro) {
         <form id="hForm" class="fixrow"><label class="f">Eller skriv adressen<input id="hAdr" placeholder="Torget 1, 8300 Svolvær"></label><button class="btn" type="submit">Bruk</button></form>
         <button type="button" class="linkbtn" id="hCancel">Avbryt</button></div>`;
     }
-    h += `<div class="daysum">Dag ${active + 1}: ${c.visits} besøk · kjøring ${dur(c.driveMin)} · ${km(c.km)} · ferdig ${hm(c.end)}${c.est ? " · noen kjøretider er anslått" : ""}${c.warn.map(w => `<div class="late">${esc(w)}</div>`).join("")}</div>`;
+    h += `<div class="daysum">Dag ${active + 1}: ${c.visits} besøk · kjøring ${dur(c.driveMin)} · ${km(c.km)} · ferdig ${hm(c.end)}${c.est ? " · noen kjøretider er anslått" : ""}${c.ferger.length ? ` · ⛴ ${c.ferger.length} ferge${c.ferger.length > 1 ? "r" : ""}` : ""}${c.warn.map(w => `<div class="late">${esc(w)}</div>`).join("")}</div>`;
+    h += nearHtml(ro);
   }
   return h + `</div>`;
 }
@@ -413,6 +493,11 @@ function bind() {
   $("plTitle").oninput = e => { plan.tittel = e.target.value; scheduleSave() };
   $("plMin").onchange = e => { D.besokMin = Math.max(5, +e.target.value || 60); scheduleSave() };
   $("plPause").onchange = e => { D.pause = e.target.checked; change() };
+  if ($("nearToggle")) $("nearToggle").onclick = () => { nearOpen = !nearOpen; store.set("kk_near", nearOpen); render(); drawNear() };
+  if ($("nearAB")) $("nearAB").onchange = e => { nearAB = e.target.checked; store.set("kk_nearab", nearAB); render(); drawNear() };
+  if ($("nearKm")) $("nearKm").onchange = e => { nearKm = +e.target.value; store.set("kk_nearkm", nearKm); render(); drawNear() };
+  document.querySelectorAll("#planner [data-near]").forEach(b => b.onclick = () => addNear(b.dataset.near));
+  $("plFerge").onchange = e => { D.fergeVent = Math.max(0, +e.target.value || 0); change() };
   document.querySelectorAll("#planner [data-day]").forEach(b => b.onclick = () => { overview = false; active = +b.dataset.day; hotelMode = false; clearHotels(); render(); drawPlan(); fitDay() });
   $("plAddDay").onclick = addDay;
   $("dDate").onchange = e => { d.dato = e.target.value; scheduleSave(); render() };
@@ -511,7 +596,7 @@ async function toggle(force) {
   document.dispatchEvent(new Event("kk:view"));
   KK().closeDetail();
   KK().pick = open ? (k => { if (readonly) return false; addStop(k); return true }) : null;
-  if (!open) { if (planLayer) planLayer.clearLayers(); if (legendEl) legendEl.hidden = true; clearHotels(); hotelMode = false; setTimeout(() => KK().invalidate(), 0); return }
+  if (!open) { if (planLayer) planLayer.clearLayers(); if (nearLayer) nearLayer.clearLayers(); if (legendEl) legendEl.hidden = true; clearHotels(); hotelMode = false; setTimeout(() => KK().invalidate(), 0); return }
   if (window.innerWidth <= 760) { $("main").dataset.view = "list" }
   render();
   await loadList(true);
