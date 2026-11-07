@@ -20,7 +20,7 @@ body{margin:0}
   --profil:#1d5aa8; --vent:#b8572a; --stack:#1b2620;
   --segA:#0d6b5c; --segB:#4f8a3a; --segC:#a8811d; --segD:#8a948f;
   --warn-bg:#fbf1dc; --warn-ink:#6f5210;
-  --kom-line:rgba(24,33,43,.45); --charge:#c08a12;
+  --kom-line:rgba(24,33,43,.45); --charge:#c08a12; --hotel:#7a3e9d; --late:#b3261e;
   --f-display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
   --f-body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
 }
@@ -31,7 +31,7 @@ body{margin:0}
   --accent:#7fb0ec; --accent-ink:#0b1a2c; --accent-soft:#1a2c44;
   --profil:#7fb0ec; --vent:#e48a5c; --stack:#e4ebe7;
   --segA:#4fbfa8; --segB:#8cc271; --segC:#d9b04b; --segD:#7f8b86;
-  --kom-line:rgba(227,233,239,.45); --charge:#e3b23c; --kom-line:rgba(227,233,239,.45); --charge:#e3b23c; --warn-bg:#352a12; --warn-ink:#ecd193; color-scheme:dark}}
+  --kom-line:rgba(227,233,239,.45); --charge:#e3b23c; --hotel:#c39be0; --late:#f2a49c; --warn-bg:#352a12; --warn-ink:#ecd193; color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#10151b; --panel:#161d25; --ink:#e3e9ef; --muted:#97a3b0; --line:#28323d;
   --sea:#0e141a; --land:#1b232c; --land-line:#3a4653;
@@ -39,7 +39,7 @@ body{margin:0}
   --accent:#7fb0ec; --accent-ink:#0b1a2c; --accent-soft:#1a2c44;
   --profil:#7fb0ec; --vent:#e48a5c; --stack:#e4ebe7;
   --segA:#4fbfa8; --segB:#8cc271; --segC:#d9b04b; --segD:#7f8b86;
-  --kom-line:rgba(227,233,239,.45); --charge:#e3b23c; --warn-bg:#352a12; --warn-ink:#ecd193; color-scheme:dark}
+  --kom-line:rgba(227,233,239,.45); --charge:#e3b23c; --hotel:#c39be0; --late:#f2a49c; --warn-bg:#352a12; --warn-ink:#ecd193; color-scheme:dark}
 [hidden]{display:none!important}
 html,body{height:100%}
 body{background:var(--bg);color:var(--ink);font:15px/1.45 var(--f-body);display:flex;flex-direction:column;overflow:hidden}
@@ -212,6 +212,50 @@ label.f select,label.f input{font-size:14px;text-transform:none;letter-spacing:0
 .achip:hover span{background:var(--accent);color:var(--accent-ink)}
 .active .aclear{margin-left:4px}
 
+/* planlegger */
+.planner{display:none;flex:1;min-height:0;overflow:auto;flex-direction:column}
+body.planning .planner{display:flex}
+body.planning .filters,body.planning .active,body.planning .listhead,body.planning .list{display:none!important}
+body.planning .legend{display:none}
+.top .linkbtn[aria-pressed="true"]{background:var(--brand-ink);color:var(--brand);text-decoration:none;border-radius:6px;padding:2px 8px}
+.plhead{display:flex;flex-direction:column;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel);z-index:2}
+.plbody{padding:12px 16px 40px;display:flex;flex-direction:column;gap:10px}
+.plrow{display:flex;gap:8px;align-items:center;min-width:0}
+.plrow.wrap{flex-wrap:wrap}
+.plrow.small{flex-wrap:wrap;font-size:13px;color:var(--muted);gap:6px 14px}
+.plrow select,.plrow input{font-size:14px;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 7px;color:var(--ink);min-width:0}
+.plrow select#plPick{flex:1}
+.plrow input[type=number]{width:64px}
+.plrow .grow{flex:1;min-width:140px}
+.pltitle{flex:1;font:700 20px var(--f-display)!important;padding:4px 8px!important}
+.plsum{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums;display:flex;flex-wrap:wrap;gap:4px 10px}
+.pltabs{display:flex;gap:6px;flex-wrap:wrap}
+.pltabs .add{border-style:dashed}
+.day{display:flex;flex-direction:column;gap:6px}
+.step{display:grid;grid-template-columns:30px 1fr;gap:10px;align-items:start;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px}
+.step b{font-weight:600}
+.sbody{display:flex;flex-direction:column;gap:4px;min-width:0}
+.step .when{font-size:14px;font-variant-numeric:tabular-nums}
+.pn{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font:700 14px var(--f-display);background:var(--accent);color:var(--accent-ink);border:2px solid var(--panel);box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.pn.start{background:var(--ink);color:var(--panel)}
+.pn.end{background:var(--hotel);color:var(--panel)}
+.leg{font-size:13px;color:var(--muted);padding:2px 0 2px 13px;margin-left:13px;border-left:2px dashed var(--line);font-variant-numeric:tabular-nums}
+.leg .est{font-size:11px;border:1px solid var(--line);border-radius:4px;padding:0 4px}
+.late{color:var(--late);font-size:13px;font-weight:600}
+.mv{display:inline-flex;gap:4px;margin-left:auto}
+.ib{width:28px;height:28px;border:1px solid var(--line);background:var(--panel);border-radius:6px;cursor:pointer;color:var(--ink)}
+.ib:disabled{opacity:.35;cursor:default}
+.hint{font-size:14px;color:var(--muted);border:1px dashed var(--line);border-radius:8px;padding:12px}
+.endacts{margin-top:4px}
+.hotels{display:flex;flex-direction:column;gap:8px;border:1px solid var(--hotel);border-radius:8px;padding:10px}
+.hlist{display:flex;flex-direction:column;max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:6px}
+.hrow{display:flex;flex-direction:column;align-items:flex-start;text-align:left;border:0;border-bottom:1px solid var(--line);background:none;padding:7px 10px;cursor:pointer;color:var(--ink)}
+.hrow span{font-size:12px;color:var(--muted)}
+.hrow:hover{background:var(--bg)}
+.hicon{width:24px;height:24px;border-radius:6px;display:grid;place-items:center;background:var(--hotel);color:var(--panel);font:700 13px var(--f-display);border:2px solid var(--panel);box-shadow:0 1px 3px rgba(0,0,0,.3);cursor:pointer}
+.daysum{font-size:13px;color:var(--ink);background:var(--accent-soft);border-radius:8px;padding:8px 10px;font-variant-numeric:tabular-nums}
+.flash{position:sticky;bottom:8px;background:var(--ink);color:var(--panel);border-radius:8px;padding:8px 12px;font-size:13px}
+
 @media (max-width:760px){.logo{height:28px}.top .brand .ttl{font-size:19px}}
 
 @media (max-width:760px){.who span.nm{display:none}}
@@ -275,6 +319,7 @@ label.f select,label.f input{font-size:14px;text-transform:none;letter-spacing:0
     <button id="vMap" aria-pressed="false">Kart</button>
   </div>
   <div class="who"><span class="nm">Innlogget som <b id="who"></b></span>
+    <button type="button" class="linkbtn" id="tPlan" aria-pressed="false">Planlegger</button>
     <button type="button" class="linkbtn" id="tAdr" hidden>Finn adresser</button>
     <button type="button" class="linkbtn" id="pwBtn">Bytt passord</button>
     <button type="button" class="linkbtn" id="logout">Logg ut</button></div>
@@ -309,6 +354,7 @@ label.f select,label.f input{font-size:14px;text-transform:none;letter-spacing:0
       <button class="reset" id="reset">Nullstill</button>
     </div>
     <div class="list" id="list"></div>
+    <div class="planner" id="planner" aria-label="Ruteplanlegger"></div>
   </aside>
   <section class="mapwrap">
     <div id="map" aria-label="Kart over kunder"></div>
@@ -348,5 +394,6 @@ label.f select,label.f input{font-size:14px;text-transform:none;letter-spacing:0
 <script src="config.js"></script>
 <script src="app.js"></script>
 <script src="adresser.js"></script>
+<script src="planner.js"></script>
 </body>
 </html>

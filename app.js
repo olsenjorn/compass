@@ -274,7 +274,7 @@ function initMap() {
     if (downAt && o && Math.hypot(o.clientX - downAt[0], o.clientY - downAt[1]) > 6) return; // var et dra, ikke et klikk
     closeDetail();
   });
-  map.on("popupopen", e => e.popup.getElement().querySelectorAll("button[data-k]").forEach(b => b.onclick = () => { map.closePopup(); select(b.dataset.k, false) }));
+  map.on("popupopen", e => e.popup.getElement().querySelectorAll("button[data-k]").forEach(b => b.onclick = () => { map.closePopup(); pickCustomer(b.dataset.k) }));
   window.addEventListener("resize", () => map.invalidateSize());
 }
 function komStyle(f) {
@@ -292,7 +292,7 @@ function renderMap(arr, fit) {
     if (list.length === 1) {
       m = L.circleMarker(ll, { radius: { A: 10, B: 8.5, C: 7, D: 5.5 }[c0.s] || 6, color: "#fff", weight: 1.5, fillColor: css(c0.kat === "Profil" ? "--profil" : "--vent"), fillOpacity: .95, bubblingMouseEvents: false });
       m.bindTooltip(`${esc(c0.n)} · ${krK(c0.t)}`, { direction: "top" });
-      m.on("click", () => select(c0.k, false));
+      m.on("click", () => pickCustomer(c0.k));
     } else {
       const sz = Math.min(44, 20 + Math.sqrt(list.length) * 4);
       m = L.marker(ll, { icon: L.divIcon({ className: "", html: `<div class="stackicon" style="width:${sz}px;height:${sz}px">${list.length}</div>`, iconSize: [sz, sz], iconAnchor: [sz / 2, sz / 2] }) });
@@ -312,6 +312,10 @@ function renderMap(arr, fit) {
 }
 
 /* ---------------- detaljer ---------------- */
+function pickCustomer(k) {
+  if (window.KK.pick && window.KK.pick(k)) return; // planleggeren tok klikket
+  select(k, false);
+}
 function closeDetail() {
   if ($("detail").hidden) return;
   $("detail").hidden = true; st.sel = null;
@@ -515,7 +519,8 @@ const reTheme = () => { if (map && DATA.length) { render(false); drawChargers() 
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", reTheme);
 
 window.KK = {
-  sb, get RAW() { return RAW }, get GEO() { return GEO }, get ADR() { return ADR }, get ME() { return ME },
+  sb, get map() { return map }, get DATA() { return DATA }, get CHARGERS() { return CHARGERS }, pick: null,
+  select: (k) => select(k, false), closeDetail: () => closeDetail(), invalidate: () => map && map.invalidateSize(), get RAW() { return RAW }, get GEO() { return GEO }, get ADR() { return ADR }, get ME() { return ME },
   setAdr(rows) { rows.forEach(x => ADR[x.kundenr] = x); refreshData(false) }
 };
 /* datalist med poststeder lastes når geodata er hentet */
