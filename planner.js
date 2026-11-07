@@ -508,7 +508,7 @@ async function exportIcs() {
 async function toggle(force) {
   open = force ?? !open;
   document.body.classList.toggle("planning", open);
-  $("tPlan").setAttribute("aria-pressed", open);
+  document.dispatchEvent(new Event("kk:view"));
   KK().closeDetail();
   KK().pick = open ? (k => { if (readonly) return false; addStop(k); return true }) : null;
   if (!open) { if (planLayer) planLayer.clearLayers(); if (legendEl) legendEl.hidden = true; clearHotels(); hotelMode = false; setTimeout(() => KK().invalidate(), 0); return }
@@ -522,6 +522,5 @@ async function toggle(force) {
   } else recompute();
   setTimeout(() => KK().invalidate(), 0);
 }
-document.addEventListener("click", e => { if (e.target.closest("#tPlan")) toggle() });
 window.KKPlan = { toggle, openPlan, computeDay, leg, hm, dur, buildIcs, get open() { return open }, get plan() { return plan }, get computed() { return computed } };
 })();

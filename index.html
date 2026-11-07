@@ -313,6 +313,50 @@ body.planning .legend{display:none}
 
 @media (max-width:1560px){.top .brand small{display:none}}
 @media (max-width:1320px){.who span.nm{display:none}}
+/* toppfelt: logo og konto øverst, faner under */
+:root{--brand-deep:#174a8c}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--brand-deep:#10325c}}
+:root[data-theme="dark"]{--brand-deep:#10325c}
+.top{display:block!important;padding:0!important;gap:0!important}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-block:12px 10px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.topbar .brand{display:flex;align-items:center;gap:14px;color:var(--brand-ink)}
+.topbar .logo{height:46px;width:auto;margin:-6px 0 -6px -6px}
+.topbar .ttl{font:700 22px/1 var(--f-display);padding-left:14px;border-left:1px solid rgba(255,255,255,.35);letter-spacing:.01em}
+.acct{position:relative}
+.acctbtn{display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);color:var(--brand-ink);border-radius:999px;padding:4px 12px 4px 4px;cursor:pointer;font-weight:600;font-size:14px}
+.acctbtn:hover{background:rgba(255,255,255,.2)}
+.av{width:28px;height:28px;border-radius:50%;background:var(--brand-ink);color:var(--brand);display:grid;place-items:center;font:700 13px var(--f-display)}
+.acctbtn .caret{font-size:11px;opacity:.8}
+.acctmenu{position:absolute;right:0;top:calc(100% + 6px);z-index:2000;min-width:220px;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.2);padding:6px;display:flex;flex-direction:column}
+.acctinfo{display:flex;flex-direction:column;padding:8px 10px 10px;border-bottom:1px solid var(--line);margin-bottom:4px}
+.acctinfo span{font-size:12px;color:var(--muted)}
+.acctmenu button{text-align:left;border:0;background:none;padding:8px 10px;border-radius:6px;cursor:pointer;color:var(--ink);font-size:14px}
+.acctmenu button:hover{background:var(--bg)}
+.acctmenu #logout{color:var(--late)}
+.tabs{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;background:var(--brand-deep);padding-left:max(8px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.tabrow{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none}
+.tab{border:0;background:none;color:var(--brand-muted);font:600 15px var(--f-body);padding:10px 14px 9px;border-bottom:3px solid transparent;cursor:pointer;white-space:nowrap}
+.tab:hover{color:var(--brand-ink)}
+.tab[aria-pressed="true"]{color:var(--brand-ink);border-bottom-color:var(--brand-ink)}
+.tabs .sum{margin-left:auto;display:flex;gap:20px;padding-block:6px;color:var(--brand-ink)}
+.tabs .sum div{display:flex;align-items:baseline;gap:6px;flex-direction:row}
+.tabs .sum b{font:600 17px var(--f-display)}
+.tabs .sum span{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--brand-muted)}
+.tabs .switch{display:none}
+@media (max-width:760px){
+  .topbar .logo{height:36px}.topbar .ttl{font-size:18px}
+  .acctbtn .nm{display:none}.acctbtn{padding:3px 8px 3px 3px}
+  .tabs{flex-wrap:wrap;align-items:center;gap:0 8px}
+  .tabs .switch{display:flex;margin-left:auto;background:rgba(255,255,255,.12)}
+  .tabs .switch button{color:var(--brand-ink)}
+  .tabs .switch button[aria-pressed="true"]{background:var(--brand-ink);color:var(--brand)}
+  .tabs .sum{order:3;width:100%;margin:0;padding-block:4px 8px;padding-left:8px;justify-content:flex-start;gap:16px}
+  .tabs .sum b{font-size:15px}
+  .tab{padding:9px 9px 8px;font-size:14px}
+  .tabs .switch button{padding:4px 10px}
+  .tabs .sum div:last-child{display:none}
+}
+
 @media (max-width:760px){.cweek{grid-template-columns:1fr;grid-auto-rows:auto}.ccol{border-right:0;border-bottom:1px solid var(--line)}.cgrid{grid-auto-rows:minmax(64px,auto)}.cev span{display:none}}
 
 @media (max-width:760px){.logo{height:28px}.top .brand .ttl{font-size:19px}}
@@ -360,7 +404,8 @@ body.planning .legend{display:none}
 </main>
 <div class="app" id="app" hidden>
 <header class="top">
-  <div class="brand"><svg class="logo" role="img" aria-label="Lindab" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"  viewBox="0 0 145.34 48.6383">
+  <div class="topbar">
+    <div class="brand"><svg class="logo" role="img" aria-label="Lindab" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"  viewBox="0 0 145.34 48.6383">
 <path fill-rule="nonzero" fill="currentColor" fill-opacity="1" d="M 49.058594 12.976562 L 53.792969 12.976562 L 53.792969 30.472656 L 64.289062 30.472656 L 64.289062 34.441406 L 49.058594 34.441406 Z M 49.058594 12.976562 "/>
 <path fill-rule="nonzero" fill="currentColor" fill-opacity="1" d="M 65.820312 18.902344 L 70.105469 18.902344 L 70.105469 34.441406 L 65.820312 34.441406 Z M 70.105469 16.496094 L 65.820312 16.496094 L 65.820312 12.976562 L 70.105469 12.976562 Z M 70.105469 16.496094 "/>
 <path fill-rule="nonzero" fill="currentColor" fill-opacity="1" d="M 72.066406 18.902344 L 76.136719 18.902344 L 76.136719 21.0625 L 76.226562 21.0625 C 77.3125 19.289062 79.183594 18.480469 80.992188 18.480469 C 85.546875 18.480469 86.695312 21.035156 86.695312 24.882812 L 86.695312 34.441406 L 82.410156 34.441406 L 82.410156 25.664062 C 82.410156 23.109375 81.6875 21.847656 79.667969 21.847656 C 77.34375 21.847656 76.347656 23.140625 76.347656 26.296875 L 76.347656 34.441406 L 72.066406 34.441406 Z M 72.066406 18.902344 "/>
@@ -372,22 +417,33 @@ body.planning .legend{display:none}
 <path fill-rule="nonzero" fill="currentColor" fill-opacity="1" d="M 11.230469 23.730469 C 11.230469 16.855469 16.8125 11.277344 23.679688 11.125 L 23.679688 8.148438 C 15.242188 8.304688 8.402344 15.289062 8.402344 23.730469 C 8.402344 32.332031 15.242188 39.253906 23.679688 39.40625 L 23.679688 36.429688 C 16.8125 36.277344 11.230469 30.683594 11.230469 23.730469 "/>
 <path fill-rule="nonzero" fill="currentColor" fill-opacity="1" d="M 42.507812 23.730469 C 42.507812 13.714844 34.398438 5.472656 24.230469 5.332031 L 24.230469 8.148438 C 32.753906 8.292969 39.675781 15.285156 39.675781 23.730469 C 39.675781 32.339844 32.753906 39.265625 24.230469 39.40625 L 24.230469 42.226562 C 34.398438 42.085938 42.507812 33.832031 42.507812 23.730469 "/>
 <path fill-rule="nonzero" fill="currentColor" fill-opacity="1" d="M 33.785156 23.730469 C 33.785156 29.121094 29.453125 33.382812 24.230469 33.523438 L 24.230469 36.429688 C 31.175781 36.285156 36.613281 30.691406 36.613281 23.730469 C 36.613281 16.847656 31.175781 11.265625 24.230469 11.125 L 24.230469 14.023438 C 29.453125 14.164062 33.785156 18.417969 33.785156 23.730469 "/>
-</svg><span class="ttl">Kundekart Nord</span> <small>Profil og Ventilasjon</small></div>
-  <div class="switch" role="group" aria-label="Visning">
-    <button id="vList" aria-pressed="true">Liste</button>
-    <button id="vMap" aria-pressed="false">Kart</button>
+</svg><span class="ttl">Kundekart Nord</span></div>
+    <div class="acct">
+      <button type="button" class="acctbtn" id="acctBtn" aria-haspopup="true" aria-expanded="false"><span class="av" id="whoInit" aria-hidden="true"></span><span class="nm" id="who"></span><span class="caret" aria-hidden="true">▾</span></button>
+      <div class="acctmenu" id="acctMenu" hidden>
+        <div class="acctinfo"><b id="whoName"></b><span id="whoMail"></span></div>
+        <button type="button" id="tAdr" hidden>Finn adresser</button>
+        <button type="button" id="pwBtn">Bytt passord</button>
+        <button type="button" id="logout">Logg ut</button>
+      </div>
+    </div>
   </div>
-  <div class="who"><span class="nm">Innlogget som <b id="who"></b></span>
-    <button type="button" class="linkbtn" id="tPlan" aria-pressed="false">Planlegger</button>
-    <button type="button" class="linkbtn" id="tCal" aria-pressed="false">Kalender</button>
-    <button type="button" class="linkbtn" id="tAdr" hidden>Finn adresser</button>
-    <button type="button" class="linkbtn" id="pwBtn">Bytt passord</button>
-    <button type="button" class="linkbtn" id="logout">Logg ut</button></div>
-  <div class="sum" aria-live="polite">
-    <div><b id="sCount">–</b><span>Kunder i utvalg</span></div>
-    <div><b id="sTot">–</b><span>Omsetning 12 mnd</span></div>
-    <div><b id="sPin">–</b><span>Vises i kart</span></div>
-  </div>
+  <nav class="tabs" aria-label="Hovedmeny">
+    <div class="tabrow">
+      <button type="button" class="tab" id="tKunder" aria-pressed="true">Kunder</button>
+      <button type="button" class="tab" id="tPlan" aria-pressed="false">Planlegger</button>
+      <button type="button" class="tab" id="tCal" aria-pressed="false">Kalender</button>
+    </div>
+    <div class="switch" role="group" aria-label="Visning">
+      <button id="vList" aria-pressed="true">Liste</button>
+      <button id="vMap" aria-pressed="false">Kart</button>
+    </div>
+    <div class="sum" aria-live="polite">
+      <div><b id="sCount">–</b><span>Kunder</span></div>
+      <div><b id="sTot">–</b><span>Omsetning 12 mnd</span></div>
+      <div><b id="sPin">–</b><span>I kartet</span></div>
+    </div>
+  </nav>
 </header>
 
 <div class="main" id="main" data-view="list">

@@ -87,6 +87,8 @@ async function start() {
       return;
     }
     $("who").textContent = ME.navn;
+    $("whoName").textContent = ME.navn; $("whoMail").textContent = ME.epost;
+    $("whoInit").textContent = ME.navn.split(/\s+/).map(w => w[0]).slice(0, 2).join("").toUpperCase();
     RAW = k.data.map(fromDb);
     RETT = {}; (r.data || []).forEach(x => RETT[x.kundenr] = x);
     ADR = {}; (a.data || []).forEach(x => ADR[x.kundenr] = x);
@@ -556,6 +558,23 @@ window.KK = {
   select: (k) => select(k, false), closeDetail: () => closeDetail(), invalidate: () => map && map.invalidateSize(), get RAW() { return RAW }, get GEO() { return GEO }, get ADR() { return ADR }, get ME() { return ME },
   setAdr(rows) { rows.forEach(x => ADR[x.kundenr] = x); refreshData(false) }
 };
+/* ---------- toppmeny: faner og konto ---------- */
+function syncTabs() {
+  const cal = window.KKCal && window.KKCal.open, pl = window.KKPlan && window.KKPlan.open;
+  $("tKunder").setAttribute("aria-pressed", !cal && !pl);
+  $("tPlan").setAttribute("aria-pressed", !cal && !!pl);
+  $("tCal").setAttribute("aria-pressed", !!cal);
+}
+document.addEventListener("kk:view", syncTabs);
+$("tKunder").onclick = async () => { if (window.KKCal.open) window.KKCal.toggle(false); if (window.KKPlan.open) await window.KKPlan.toggle(false); syncTabs() };
+$("tPlan").onclick = async () => { if (window.KKCal.open) window.KKCal.toggle(false); if (!window.KKPlan.open) await window.KKPlan.toggle(true); syncTabs() };
+$("tCal").onclick = () => { if (!window.KKCal.open) window.KKCal.toggle(true); syncTabs() };
+const acctMenu = $("acctMenu"), acctBtn = $("acctBtn");
+const closeAcct = () => { acctMenu.hidden = true; acctBtn.setAttribute("aria-expanded", "false") };
+acctBtn.onclick = e => { e.stopPropagation(); const o = acctMenu.hidden; acctMenu.hidden = !o; acctBtn.setAttribute("aria-expanded", String(o)) };
+acctMenu.addEventListener("click", e => { if (e.target.closest("button")) setTimeout(closeAcct, 0) });
+document.addEventListener("click", e => { if (!acctMenu.hidden && !e.target.closest(".acct")) closeAcct() });
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeAcct() });
 /* datalist med poststeder lastes når geodata er hentet */
 const _start = start;
 start = async function () {

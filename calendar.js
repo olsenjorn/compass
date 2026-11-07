@@ -91,7 +91,7 @@ function render() {
 function toggle(force) {
   open = force ?? !open;
   $("calendar").hidden = !open;
-  $("tCal").setAttribute("aria-pressed", open);
+  document.dispatchEvent(new Event("kk:view"));
   if (open) {
     KK().closeDetail();
     if (window.innerWidth <= 760) { $("main").dataset.view = "map"; $("vMap").setAttribute("aria-pressed", "true"); $("vList").setAttribute("aria-pressed", "false") }
@@ -103,7 +103,6 @@ function toggle(force) {
     });
   }
 }
-document.addEventListener("click", e => { if (e.target.closest("#tCal")) toggle() });
 document.addEventListener("keydown", e => { if (e.key === "Escape" && open && !document.querySelector(".dlg:not([hidden])")) toggle(false) });
-window.KKCal = { toggle, load, get events() { return events } };
+window.KKCal = { toggle, load, get open() { return open }, get events() { return events } };
 })();
