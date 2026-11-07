@@ -266,6 +266,14 @@ function initMap() {
   Object.entries(GEO.reglab).forEach(([r, [la, lo]]) => L.marker([la, lo], { interactive: false, icon: L.divIcon({ className: "rlabel", html: esc(r), iconSize: null }) }).addTo(labelLayer));
   const syncLabels = () => { const z = map.getZoom(); if (z >= 6 && z < 9) labelLayer.addTo(map); else labelLayer.remove() };
   map.on("zoomend", syncLabels); syncLabels();
+  let downAt = null;
+  map.getContainer().addEventListener("pointerdown", e => downAt = [e.clientX, e.clientY], true);
+  map.getContainer().addEventListener("mousedown", e => downAt = [e.clientX, e.clientY], true);
+  map.on("click", e => {
+    const o = e.originalEvent;
+    if (downAt && o && Math.hypot(o.clientX - downAt[0], o.clientY - downAt[1]) > 6) return; // var et dra, ikke et klikk
+    closeDetail();
+  });
   map.on("popupopen", e => e.popup.getElement().querySelectorAll("button[data-k]").forEach(b => b.onclick = () => { map.closePopup(); select(b.dataset.k, false) }));
   window.addEventListener("resize", () => map.invalidateSize());
 }
@@ -282,7 +290,7 @@ function renderMap(arr, fit) {
     const c0 = list[0], ll = [c0.lat, c0.lon]; pts.push(ll);
     let m;
     if (list.length === 1) {
-      m = L.circleMarker(ll, { radius: { A: 10, B: 8.5, C: 7, D: 5.5 }[c0.s] || 6, color: "#fff", weight: 1.5, fillColor: css(c0.kat === "Profil" ? "--profil" : "--vent"), fillOpacity: .95 });
+      m = L.circleMarker(ll, { radius: { A: 10, B: 8.5, C: 7, D: 5.5 }[c0.s] || 6, color: "#fff", weight: 1.5, fillColor: css(c0.kat === "Profil" ? "--profil" : "--vent"), fillOpacity: .95, bubblingMouseEvents: false });
       m.bindTooltip(`${esc(c0.n)} · ${krK(c0.t)}`, { direction: "top" });
       m.on("click", () => select(c0.k, false));
     } else {
@@ -304,6 +312,11 @@ function renderMap(arr, fit) {
 }
 
 /* ---------------- detaljer ---------------- */
+function closeDetail() {
+  if ($("detail").hidden) return;
+  $("detail").hidden = true; st.sel = null;
+  document.querySelectorAll(".row.sel").forEach(r => r.classList.remove("sel"));
+}
 function hav(a, b, c, d) { const R = 6371, t = x => x * Math.PI / 180, dl = t(c - a), dn = t(d - b); const h = Math.sin(dl / 2) ** 2 + Math.cos(t(a)) * Math.cos(t(c)) * Math.sin(dn / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)) }
 function select(k, pan = true) {
   st.sel = k; const c = DATA.find(x => x.k === k); if (!c) return;
@@ -356,7 +369,7 @@ function select(k, pan = true) {
     </div>
     ${near}`;
   $("detail").hidden = false;
-  $("dx").onclick = () => { $("detail").hidden = true; st.sel = null; document.querySelectorAll(".row.sel").forEach(r => r.classList.remove("sel")) };
+  $("dx").onclick = closeDetail;
   if ($("dZoom")) $("dZoom").onclick = () => { showMap(); map.setView([c.lat, c.lon], Math.max(map.getZoom(), 12)) };
   if ($("dUnfix")) $("dUnfix").onclick = async () => {
     const { error } = await sb.from("sted_rettelse").delete().eq("kundenr", c.k);
@@ -467,7 +480,16 @@ let qT = null;
 $("q").oninput = e => { st.q = e.target.value; clearTimeout(qT); qT = setTimeout(() => { renderActive(); render(false) }, 120) };
 document.querySelector(".filters").addEventListener("click", e => { const b = e.target.closest(".msbtn"); if (b) openPop(b.dataset.k) });
 document.addEventListener("click", e => { if (!e.target.closest(".ms")) closePops() });
-document.addEventListener("keydown", e => { if (e.key === "Escape") closePops() });
+document.addEventListener("keydown", e => { if (e.key === "Escape") { closePops(); if (!document.querySelector(".dlg:not([hidden])")) closeDetail() } });
+/* Lukk kundekortet ved klikk utenfor: i kartet via Leaflet (ikke etter dra), ellers via dokumentet */
+let ptrDown = null;
+document.addEventListener("pointerdown", e => ptrDown = { x: e.clientX, y: e.clientY, t: e.target }, true);
+document.addEventListener("click", e => {
+  if ($("detail").hidden) return;
+  if (ptrDown && (Math.hypot(e.clientX - ptrDown.x, e.clientY - ptrDown.y) > 6 || ptrDown.t.closest("#detail"))) return; // dra eller markering, ikke klikk
+  if (e.target.closest("#detail, .row, .leaflet-container, .maptools, .legend, .dlg, #cpanel, .ms, .achip, .switch, .top")) return;
+  closeDetail();
+});
 $("fSeg").onclick = e => { const b = e.target.closest("[data-seg]"); if (!b) return; const s = b.dataset.seg; st.seg.has(s) ? st.seg.delete(s) : st.seg.add(s); b.setAttribute("aria-pressed", st.seg.has(s)); applyFilters() };
 $("activeF").onclick = e => {
   if (e.target.closest(".aclear")) return $("reset").click();
