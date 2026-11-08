@@ -328,8 +328,10 @@ body.planning .legend{display:none}
 
 .ferryicon{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:#0e7490;color:#fff;font-size:16px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35);cursor:pointer}
 .legend.hidepop{visibility:hidden}
+.avdicon{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 9px 0 6px;border-radius:14px;background:var(--brand);color:#fff;font:700 13px var(--f-display);letter-spacing:.02em;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);white-space:nowrap;cursor:pointer}
 .ferryicon.quay{width:20px;height:20px;font-size:11px;border-width:1.5px;transition:transform .15s}
 .quays-far .legend.hidepop{visibility:hidden}
+.avdicon{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 9px 0 6px;border-radius:14px;background:var(--brand);color:#fff;font:700 13px var(--f-display);letter-spacing:.02em;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);white-space:nowrap;cursor:pointer}
 .ferryicon.quay{transform:scale(.7)}
 .ferrypop .ftdate{border:1px solid var(--line);border-radius:999px;padding:2px 8px;font:inherit;font-size:12px;background:var(--bg);color:var(--ink)}
 .ferryicon.small{width:24px;height:24px;font-size:13px;opacity:.9}
@@ -533,6 +535,7 @@ body.planning .legend{display:none}
       <div><i style="background:var(--profil)"></i>Profil</div>
       <div><i style="background:var(--vent)"></i>Ventilasjon</div>
       <div><i style="background:var(--stack)"></i>Flere kunder på samme sted</div>
+      <div><i style="background:var(--brand);border-radius:3px"></i>Lindab-avdeling</div>
       <div><i style="background:#0e7490"></i>Fergeleie (klikk for fergetider)</div>
       <div class="lgpros" hidden><i class="sq" style="background:var(--pros-bv)"></i>Prospekt: byggevarehus</div>
       <div class="lgpros" hidden><i class="sq" style="background:var(--pros-tak)"></i>Prospekt: takentreprenør</div>
@@ -568,5 +571,6 @@ body.planning .legend{display:none}
 <script src="planner.js"></script>
 <script src="calendar.js"></script>
 <script src="ferger.js"></script>
+<script src="avdelinger.js"></script>
 </body>
 </html>
