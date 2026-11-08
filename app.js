@@ -217,7 +217,7 @@ const FKEYS = { reg: { label: "Region", field: "r", none: "Mangler sted" }, by: 
   eier: { label: "Eier", field: "e" }, kat: { label: "Kategori", field: "kat" },
   kj: { label: "Kjede", field: "kj", none: "Uten kjede", search: true }, ko: { label: "Konstellasjon", field: "ko", none: "Uten konstellasjon" } };
 const FLAGS = { vbl: "VBL-medlem", bv: "Byggvareforhandler" };
-const PROSF = { bv: "Byggevarehus (ikke kunde)", tak: "Takentreprenører >15 mill (ikke kunde)" };
+const PROSF = { bv: "Byggevarehus (ikke kunde)", tak: "Takentreprenører >10 mill (ikke kunde)" };
 const NONE = "__none";
 function loadFilters() {
   const f = store.get("kk_filters", null);
@@ -256,7 +256,7 @@ function buildFilters() {
       <div class="mspop" hidden></div>`;
   });
   $("fFlag").innerHTML = `<span class="seglbl">Vis bare</span>` + Object.entries(FLAGS).map(([k, l]) => `<button type="button" class="chip" data-flag="${k}" aria-pressed="${st.flag.has(k)}">${l} <span class="n">${CUST().filter(c => c[k]).length}</span></button>`).join("");
-  $("fPros").innerHTML = `<span class="seglbl">Prospekter</span>` + [["bv", "Byggevarehus"], ["tak", "Takentreprenører >15 mill"]].map(([k, l]) => `<button type="button" class="chip" data-pros="${k}" aria-pressed="${st.pros.has(k)}" title="${esc(PROSF[k])}">${l} <span class="n">${DATA.filter(c => c.pro === k).length}</span></button>`).join("");
+  $("fPros").innerHTML = `<span class="seglbl">Prospekter</span>` + [["bv", "Byggevarehus"], ["tak", "Takentreprenører >10 mill"]].map(([k, l]) => `<button type="button" class="chip" data-pros="${k}" aria-pressed="${st.pros.has(k)}" title="${esc(PROSF[k])}">${l} <span class="n">${DATA.filter(c => c.pro === k).length}</span></button>`).join("");
   syncProsMode();
   $("fSeg").innerHTML = `<span class="seglbl">Segment</span>` +
     ["A", "B", "C", "D"].map(s => `<button type="button" class="chip" data-seg="${s}" aria-pressed="${st.seg.has(s)}"><span class="dot" style="background:var(--seg${s})"></span>${s}</button>`).join("");
@@ -588,7 +588,7 @@ function selectPros(c, pan) {
       <dt>Omsetning</dt><dd>${c.oms != null ? `<b>${kr(c.oms)}</b>${c.aar ? ` <span class="mut">(${c.aar}${c.pro === "bv" ? ", hele selskapet" : ""})</span>` : ""}` : `<span class="mut">${c.kj && c.kj !== "Frittstående" ? "Del av kjede, tall for butikken finnes ikke" : "Ikke tilgjengelig"}</span>`}</dd>
       ${c.web ? `<dt>Nettside</dt><dd><a href="${esc(/^https?:/.test(c.web) ? c.web : "https://" + c.web)}" target="_blank" rel="noopener">${esc(c.web)}</a></dd>` : ""}
     </dl>
-    <div class="prosnote">Står ikke på kundelista vår. Hentet fra Brønnøysundregistrene${c.pro === "tak" ? " (næringskode takarbeid eller «tak» i navnet, omsetning over 15 mill)" : " (detalj- og engroshandel med byggevarer)"}.</div>
+    <div class="prosnote">Står ikke på kundelista vår. Hentet fra Brønnøysundregistrene${c.pro === "tak" ? " (næringskode takarbeid eller «tak» i navnet, omsetning over 10 mill)" : " (detalj- og engroshandel med byggevarer)"}.</div>
     <div class="acts">
       <a class="btn pri" href="https://www.google.com/maps/search/?api=1&query=${q}" target="_blank" rel="noopener">Åpne i Google Maps ↗</a>
       ${c.lat != null ? `<button type="button" class="btn" id="dZoom">Vis i kart</button>` : ""}
