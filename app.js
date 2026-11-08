@@ -85,9 +85,10 @@ async function mfaSetup(opts = {}) {
       <li>Trykk <b>+</b> og velg å skanne en QR-kode.</li>
       <li>Skann koden under, og skriv inn de 6 sifrene appen viser.</li>
     </ol>
-    <div class="mfaqr"><img src="${data.totp.qr_code}" alt="QR-kode for autentiseringsappen"></div>
+    <div class="mfaqr"><img id="mfaQrImg" alt="QR-kode for autentiseringsappen"></div>
     <details><summary class="status">Kan ikke skanne? Skriv inn nøkkelen manuelt</summary><div class="mfasecret">${esc(data.totp.secret)}</div></details>
     <label class="f">Kode fra appen<input id="mfaCode" class="codein" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456" required></label>`;
+  $("mfaQrImg").src = data.totp.qr_code;
   A.innerHTML = `<button class="btn pri" type="submit">Aktiver</button>` + (opts.forced ? `<button class="btn" type="button" id="mfaOut">Logg ut</button>` : `<button class="btn" type="button" id="mfaLater">${opts.replace ? "Avbryt" : "Senere"}</button>`);
   setTimeout(() => $("mfaCode").focus(), 50);
   const cancel = async () => { await sb.auth.mfa.unenroll({ factorId: data.id }); closeMfa() };
