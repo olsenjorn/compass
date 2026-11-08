@@ -35,15 +35,87 @@ function showLogin(msg) {
   $("app").hidden = true; $("login").hidden = false;
   $("lErr").textContent = msg || "";
 }
+let mfaFactor = null;
+function loginStep(two) {
+  $("lStep1").hidden = two; $("lStep2").hidden = !two; $("lBack").hidden = !two;
+  $("lEmail").required = $("lPass").required = !two; $("lCode").required = two;
+  $("lBtn").textContent = two ? "Bekreft kode" : "Logg inn";
+  if (two) { $("lCode").value = ""; setTimeout(() => $("lCode").focus(), 0) }
+}
 $("lForm").addEventListener("submit", async e => {
   e.preventDefault();
-  const btn = $("lBtn"); btn.disabled = true; btn.textContent = "Logger inn …"; $("lErr").textContent = "";
+  const btn = $("lBtn"); $("lErr").textContent = "";
+  if (!$("lStep2").hidden) {
+    const code = $("lCode").value.replace(/\D/g, "");
+    if (code.length !== 6) { $("lErr").textContent = "Koden har 6 siffer."; return }
+    btn.disabled = true; btn.textContent = "Sjekker …";
+    const { error } = await sb.auth.mfa.challengeAndVerify({ factorId: mfaFactor.id, code });
+    btn.disabled = false; btn.textContent = "Bekreft kode";
+    if (error) { $("lErr").textContent = /invalid|expired/i.test(error.message) ? "Feil eller utløpt kode. Prøv den nye koden i appen." : "Kunne ikke bekrefte: " + error.message; $("lCode").select(); return }
+    loginStep(false); start(); return;
+  }
+  btn.disabled = true; btn.textContent = "Logger inn …";
   const { error } = await sb.auth.signInWithPassword({ email: $("lEmail").value.trim().toLowerCase(), password: $("lPass").value });
   btn.disabled = false; btn.textContent = "Logg inn";
-  if (error) { $("lErr").textContent = /invalid/i.test(error.message) ? "Feil e-post eller passord." : "Innloggingen feilet: " + error.message; return }
+  if (error) { $("lErr").textContent = /invalid/i.test(error.message) ? "Feil e-post eller passord." : /not confirmed/i.test(error.message) ? "Brukeren er ikke aktivert ennå. Kontakt Jørn Winge." : "Innloggingen feilet: " + error.message; return }
   $("lPass").value = "";
   start();
 });
+$("lBack").onclick = async () => { await sb.auth.signOut(); loginStep(false); showLogin("") };
+
+/* ---------------- tofaktor (TOTP) ---------------- */
+async function mfaState() {
+  const [a, f] = await Promise.all([sb.auth.mfa.getAuthenticatorAssuranceLevel(), sb.auth.mfa.listFactors()]);
+  const all = (f.data && f.data.all) || [];
+  return { cur: a.data && a.data.currentLevel, next: a.data && a.data.nextLevel, verified: all.filter(x => x.factor_type === "totp" && x.status === "verified"), unverified: all.filter(x => x.status !== "verified") };
+}
+async function mfaRequired() { const { data } = await sb.from("app_innstilling").select("krev_mfa").maybeSingle(); return !!(data && data.krev_mfa) }
+const fmtDato = d => new Date(d).toLocaleDateString("nb-NO", { day: "numeric", month: "short", year: "numeric" });
+function closeMfa() { $("mfaDlg").hidden = true; $("mfaMsg").textContent = "" }
+async function mfaSetup(opts = {}) {
+  const D = $("mfaDlg"), B = $("mfaBody"), A = $("mfaActs"), M = $("mfaMsg");
+  D.hidden = false; M.textContent = ""; B.innerHTML = `<div class="status">Lager QR-kode …</div>`; A.innerHTML = "";
+  const st0 = await mfaState();
+  for (const f of st0.unverified) await sb.auth.mfa.unenroll({ factorId: f.id });
+  const { data, error } = await sb.auth.mfa.enroll({ factorType: "totp", friendlyName: "Kundekart Nord " + new Date().toISOString().slice(0, 16), issuer: "Kundekart Nord" });
+  if (error) { B.innerHTML = ""; M.textContent = "Kunne ikke starte oppsettet: " + error.message; A.innerHTML = `<button class="btn" type="button" id="mfaX">Lukk</button>`; $("mfaX").onclick = closeMfa; return }
+  B.innerHTML = `${opts.forced ? `<div class="box warn">Tofaktor er påkrevd. Sett det opp for å komme videre.</div>` : ""}
+    <ol class="mfasteps">
+      <li>Åpne <b>Microsoft Authenticator</b> eller <b>Google Authenticator</b> på mobilen.</li>
+      <li>Trykk <b>+</b> og velg å skanne en QR-kode.</li>
+      <li>Skann koden under, og skriv inn de 6 sifrene appen viser.</li>
+    </ol>
+    <div class="mfaqr"><img src="${data.totp.qr_code}" alt="QR-kode for autentiseringsappen"></div>
+    <details><summary class="status">Kan ikke skanne? Skriv inn nøkkelen manuelt</summary><div class="mfasecret">${esc(data.totp.secret)}</div></details>
+    <label class="f">Kode fra appen<input id="mfaCode" class="codein" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456" required></label>`;
+  A.innerHTML = `<button class="btn pri" type="submit">Aktiver</button>` + (opts.forced ? `<button class="btn" type="button" id="mfaOut">Logg ut</button>` : `<button class="btn" type="button" id="mfaLater">${opts.replace ? "Avbryt" : "Senere"}</button>`);
+  setTimeout(() => $("mfaCode").focus(), 50);
+  const cancel = async () => { await sb.auth.mfa.unenroll({ factorId: data.id }); closeMfa() };
+  if ($("mfaLater")) $("mfaLater").onclick = async () => { if (!opts.replace) store.set("kk_mfa_snooze", Date.now() + 3 * 864e5); await cancel() };
+  if ($("mfaOut")) $("mfaOut").onclick = async () => { await sb.auth.mfa.unenroll({ factorId: data.id }).catch(() => { }); closeMfa(); await sb.auth.signOut(); showLogin("") };
+  $("mfaForm").onsubmit = async e => {
+    e.preventDefault();
+    const code = $("mfaCode").value.replace(/\D/g, "");
+    if (code.length !== 6) { M.textContent = "Koden har 6 siffer."; return }
+    M.textContent = "Sjekker …";
+    const { error: ve } = await sb.auth.mfa.challengeAndVerify({ factorId: data.id, code });
+    if (ve) { M.textContent = /invalid|expired/i.test(ve.message) ? "Feil kode. Vent på neste kode i appen og prøv igjen." : "Kunne ikke bekrefte: " + ve.message; return }
+    for (const f of st0.verified) await sb.auth.mfa.unenroll({ factorId: f.id }); // ved bytte av telefon
+    B.innerHTML = `<p class="mfaok">✓ Tofaktor er satt opp.</p><p class="mfahint">Neste gang du logger inn, ber vi om en kode fra appen etter passordet.</p>`;
+    M.textContent = ""; A.innerHTML = `<button class="btn pri" type="button" id="mfaDone">Ferdig</button>`;
+    $("mfaDone").onclick = () => { closeMfa(); if (opts.forced) start() };
+  };
+}
+$("mfaBtn").onclick = async () => {
+  const s = await mfaState();
+  if (!s.verified.length) return mfaSetup();
+  $("mfaDlg").hidden = false; $("mfaMsg").textContent = "";
+  $("mfaBody").innerHTML = `<p class="mfaok">✓ Tofaktor er på.</p><p class="mfahint">Satt opp ${fmtDato(s.verified[0].created_at)}. Har du fått ny telefon, setter du det opp på nytt her. Den gamle koblingen fjernes når den nye virker.</p>`;
+  $("mfaActs").innerHTML = `<button class="btn" type="button" id="mfaNew">Sett opp på ny telefon</button><button class="btn pri" type="button" id="mfaX">Lukk</button>`;
+  $("mfaX").onclick = closeMfa;
+  $("mfaNew").onclick = () => mfaSetup({ replace: true });
+  $("mfaForm").onsubmit = e => e.preventDefault();
+};
 $("logout").onclick = async () => { await sb.auth.signOut(); RAW = []; DATA = []; showLogin("Du er logget ut.") };
 
 /* bytt passord */
@@ -64,6 +136,12 @@ $("pwForm").addEventListener("submit", async e => {
 async function start() {
   const { data: { session } } = await sb.auth.getSession();
   if (!session) { showLogin(); return }
+  let mfa = null;
+  try {
+    mfa = await mfaState();
+    if (mfa.next === "aal2" && mfa.cur !== "aal2") { mfaFactor = mfa.verified[0]; $("app").hidden = true; $("login").hidden = false; $("lErr").textContent = ""; loginStep(true); return }
+    if (!mfa.verified.length && await mfaRequired()) { $("login").hidden = true; mfaSetup({ forced: true }); return }
+  } catch (e) { /* MFA-sjekk feilet: databasen avgjør tilgang uansett */ }
   $("login").hidden = true; $("app").hidden = false;
   $("lstatus").textContent = "Henter kunder …"; $("lstatus").hidden = false;
   try {
@@ -100,6 +178,7 @@ async function start() {
     $("lstatus").hidden = true;
     initMap();
     refreshData(true);
+    if (mfa && !mfa.verified.length && Date.now() > store.get("kk_mfa_snooze", 0)) setTimeout(() => mfaSetup(), 600);
   } catch (err) {
     $("lstatus").textContent = "Kunne ikke hente kundene: " + (err.message || err) + ". Last siden på nytt.";
   }

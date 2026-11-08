@@ -420,6 +420,15 @@ body.planning .legend{display:none}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 
+/* tofaktor */
+.codein{font:600 24px/1.2 var(--f-display);letter-spacing:.3em;text-align:center}
+.mfahint{font-size:14px;color:var(--muted)}
+.mfacard{max-width:420px}
+.mfaqr{display:grid;place-items:center;background:#fff;border-radius:10px;padding:10px;width:200px;height:200px;margin:4px auto}
+.mfaqr img{width:180px;height:180px}
+.mfasecret{font:600 13px ui-monospace,Consolas,monospace;word-break:break-all;background:var(--accent-soft);border-radius:6px;padding:6px 8px;user-select:all}
+.mfasteps{margin:0;padding-left:20px;font-size:14px;display:flex;flex-direction:column;gap:4px}
+.mfaok{color:var(--segA);font-weight:700}
 /* prospekter */
 .f.dim{opacity:.4;pointer-events:none}
 .chips.pros{border-top:1px dashed var(--line);padding-top:8px}
@@ -451,10 +460,17 @@ body.planning .legend{display:none}
 <path fill-rule="nonzero" fill="currentColor" fill-opacity="1" d="M 33.785156 23.730469 C 33.785156 29.121094 29.453125 33.382812 24.230469 33.523438 L 24.230469 36.429688 C 31.175781 36.285156 36.613281 30.691406 36.613281 23.730469 C 36.613281 16.847656 31.175781 11.265625 24.230469 11.125 L 24.230469 14.023438 C 29.453125 14.164062 33.785156 18.417969 33.785156 23.730469 "/>
 </svg><h1>Kundekart Nord</h1></div>
     <p>Profil og Ventilasjon, Nord-Norge. Logg inn med Lindab-e-posten din.</p>
-    <label class="f">E-post<input id="lEmail" type="email" autocomplete="username" required></label>
-    <label class="f">Passord<input id="lPass" type="password" autocomplete="current-password" required></label>
+    <div id="lStep1">
+      <label class="f">E-post<input id="lEmail" type="email" autocomplete="username" required></label>
+      <label class="f">Passord<input id="lPass" type="password" autocomplete="current-password" required></label>
+    </div>
+    <div id="lStep2" hidden>
+      <p class="mfahint">Åpne Microsoft Authenticator eller Google Authenticator og skriv inn den 6-sifrede koden for <b>Kundekart Nord</b>.</p>
+      <label class="f">Kode fra autentiseringsappen<input id="lCode" class="codein" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="123456"></label>
+    </div>
     <div class="err" id="lErr" role="alert"></div>
     <button class="btn pri" id="lBtn" type="submit">Logg inn</button>
+    <button class="linkbtn" id="lBack" type="button" hidden>Avbryt og logg ut</button>
   </form>
 </main>
 <div class="app" id="app" hidden>
@@ -479,6 +495,7 @@ body.planning .legend{display:none}
         <div class="acctinfo"><b id="whoName"></b><span id="whoMail"></span></div>
         <button type="button" id="tAdr" hidden>Finn adresser</button>
         <button type="button" id="pwBtn">Bytt passord</button>
+        <button type="button" id="mfaBtn">Tofaktor (autentiseringsapp)</button>
         <button type="button" id="logout">Logg ut</button>
       </div>
     </div>
@@ -570,15 +587,23 @@ body.planning .legend{display:none}
     <div class="acts"><button class="btn pri" type="submit">Lagre</button><button class="btn" type="button" id="pwCancel">Avbryt</button></div>
   </form>
 </div>
+<div class="dlg" id="mfaDlg" hidden>
+  <form class="card mfacard" id="mfaForm">
+    <h1 style="font-size:24px">Tofaktor-innlogging</h1>
+    <div id="mfaBody"></div>
+    <div class="err" id="mfaMsg" role="status"></div>
+    <div class="acts" id="mfaActs"></div>
+  </form>
+</div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=20261108d"></script>
-<script src="app.js?v=20261108d"></script>
-<script src="adresser.js?v=20261108d"></script>
-<script src="planner.js?v=20261108d"></script>
-<script src="calendar.js?v=20261108d"></script>
-<script src="ferger.js?v=20261108d"></script>
-<script src="avdelinger.js?v=20261108d"></script>
-<script src="lunsj.js?v=20261108d"></script>
+<script src="config.js?v=20261108e"></script>
+<script src="app.js?v=20261108e"></script>
+<script src="adresser.js?v=20261108e"></script>
+<script src="planner.js?v=20261108e"></script>
+<script src="calendar.js?v=20261108e"></script>
+<script src="ferger.js?v=20261108e"></script>
+<script src="avdelinger.js?v=20261108e"></script>
+<script src="lunsj.js?v=20261108e"></script>
 </body>
 </html>
