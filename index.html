@@ -327,8 +327,10 @@ body.planning .legend{display:none}
 .nearring{width:30px;height:30px;border-radius:50%;border:3px solid var(--charge);box-shadow:0 0 0 2px var(--panel)}
 
 .ferryicon{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:#0e7490;color:#fff;font-size:16px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35);cursor:pointer}
+.legend.hidepop{visibility:hidden}
 .ferryicon.quay{width:20px;height:20px;font-size:11px;border-width:1.5px;transition:transform .15s}
-.quays-far .ferryicon.quay{transform:scale(.7)}
+.quays-far .legend.hidepop{visibility:hidden}
+.ferryicon.quay{transform:scale(.7)}
 .ferrypop .ftdate{border:1px solid var(--line);border-radius:999px;padding:2px 8px;font:inherit;font-size:12px;background:var(--bg);color:var(--ink)}
 .ferryicon.small{width:24px;height:24px;font-size:13px;opacity:.9}
 .ferrypop{display:flex;flex-direction:column;gap:6px}
@@ -531,6 +533,7 @@ body.planning .legend{display:none}
       <div><i style="background:var(--profil)"></i>Profil</div>
       <div><i style="background:var(--vent)"></i>Ventilasjon</div>
       <div><i style="background:var(--stack)"></i>Flere kunder på samme sted</div>
+      <div><i style="background:#0e7490"></i>Fergeleie (klikk for fergetider)</div>
       <div class="lgpros" hidden><i class="sq" style="background:var(--pros-bv)"></i>Prospekt: byggevarehus</div>
       <div class="lgpros" hidden><i class="sq" style="background:var(--pros-tak)"></i>Prospekt: takentreprenør</div>
       <div class="note">Plassert på postnummer eller poststed, ikke gateadresse.</div>

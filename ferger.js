@@ -65,7 +65,7 @@ function draw(map) {
   if (!layer) layer = L.layerGroup();
   layer.clearLayers();
   quays.forEach(q => {
-    L.marker([q.a, q.o], { icon: L.divIcon({ className: "", html: `<div class="ferryicon quay">⛴</div>`, iconSize: [20, 20], iconAnchor: [10, 10] }), zIndexOffset: -200, keyboard: false })
+    L.marker([q.a, q.o], { icon: L.divIcon({ className: "", html: `<div class="ferryicon quay"><svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path fill="currentColor" d="M5 15h14l-2.2 4.2c-.2.5-.7.8-1.2.8H8.4c-.5 0-1-.3-1.2-.8L5 15zm3-6h8l1.5 5h-11L8 9zm2.5-4h3v3h-3V5z"/></svg></div>`, iconSize: [20, 20], iconAnchor: [10, 10] }), zIndexOffset: -200, keyboard: false })
       .bindTooltip(`${esc(q.n)} · klikk for fergetider`, { direction: "top" })
       .bindPopup(() => popup(q), { maxWidth: 320, minWidth: 270, autoPanPadding: [20, 60] })
       .on("popupopen", function () { this.closeTooltip() })
@@ -89,6 +89,9 @@ async function init() {
     if (layer) on ? layer.addTo(map) : layer.remove();
   };
   map.on("zoomend", () => sizeByZoom(map)); sizeByZoom(map);
+  const lg = document.querySelector(".legend");
+  map.on("popupopen", () => lg && lg.classList.add("hidepop"));
+  map.on("popupclose", () => lg && lg.classList.remove("hidepop"));
   try { quays = await loadQuays(); draw(map) }
   catch (e) { btn.title = "Kunne ikke hente fergeleier: " + e.message }
 }
