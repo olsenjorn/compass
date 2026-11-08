@@ -326,6 +326,20 @@ body.planning .legend{display:none}
 .ib.add{font-size:18px;line-height:1;color:var(--accent);border-color:var(--accent)}
 .nearring{width:30px;height:30px;border-radius:50%;border:3px solid var(--charge);box-shadow:0 0 0 2px var(--panel)}
 
+.ferryicon{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:#0e7490;color:#fff;font-size:16px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35);cursor:pointer}
+.ferryicon.small{width:24px;height:24px;font-size:13px;opacity:.9}
+.ferrypop{display:flex;flex-direction:column;gap:6px}
+.ftdir{display:flex;gap:6px;flex-wrap:wrap}
+.ferrypop .ftdir button{display:inline-flex;width:auto;border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:600}
+.ferrypop .ftdir button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.ftbody{max-height:240px;overflow:auto;border:1px solid var(--line);border-radius:6px}
+.fttab{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+.fttab th{position:sticky;top:0;background:var(--panel);text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:5px 8px;border-bottom:1px solid var(--line)}
+.fttab td{padding:4px 8px;border-bottom:1px solid var(--line)}
+.fttab tr.sel td{background:var(--accent-soft);font-weight:700}
+.fttab tr.cx td{color:var(--late);text-decoration:line-through}
+.ferrypop a{color:var(--accent);font-weight:600;font-size:13px}
+
 @media (max-width:1560px){.top .brand small{display:none}}
 @media (max-width:1320px){.who span.nm{display:none}}
 /* toppfelt: logo og konto øverst, faner under */

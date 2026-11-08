@@ -79,6 +79,9 @@ async function quayNear(pt) {
     .then(d => { const e = d.nearest.edges[0]; return e ? e.node.place : null }).catch(() => { EC.delete(key); return null }));
   return EC.get(key);
 }
+// Treff på destinasjon: helst skiltet destinasjon, ellers linjenavnets siste ledd
+const goesTo = (c, w) => !w || (c.destinationDisplay && c.destinationDisplay.frontText ? c.destinationDisplay.frontText.toLowerCase().includes(w) : String(c.serviceJourney.line.name).toLowerCase().split(/\s*-\s*/).pop().includes(w));
+const kaiNavn = n => String(n || "").replace(/\s*(ferjekai|fergekai|ferjeleie|kai)\b/ig, "").trim();
 const word = n => String(n || "").toLowerCase().replace(/\b(ferjekai|fergekai|ferjeleie|kai)\b/g, "").trim().split(/[\s,-]+/)[0];
 async function ferryDeparture(f, dateStr, fromMin) {
   if (!f.fra || !dateStr) return null;
@@ -91,9 +94,9 @@ async function ferryDeparture(f, dateStr, fromMin) {
     .then(d => d.stopPlace ? d.stopPlace.estimatedCalls : []).catch(() => { EC.delete(key); return [] }));
   const calls = await EC.get(key);
   const w = to ? word(to.name) : "";
-  const hit = calls.find(c => new Date(c.expectedDepartureTime) >= start && (!w || (c.destinationDisplay.frontText + " " + c.serviceJourney.line.name).toLowerCase().includes(w)));
+  const hit = calls.find(c => new Date(c.expectedDepartureTime) >= start && goesTo(c, w));
   if (!hit) return null;
-  return { min: (new Date(hit.expectedDepartureTime) - base) / 60000, linje: hit.serviceJourney.line.name };
+  return { min: (new Date(hit.expectedDepartureTime) - base) / 60000, linje: hit.serviceJourney.line.name, fraKai: from, tilKai: to };
 }
 
 /* ---------- tilstand ---------- */
@@ -134,7 +137,7 @@ async function computeDay(day, di = 0) {
       const f = { ...f0 };
       const atQuay = t + f.off + extra;
       const dep = await ferryDeparture(f, day.dato, atQuay + FERRY_CHECKIN).catch(() => null);
-      if (dep) { f.avgang = dep.min; f.linje = dep.linje; f.vent = Math.max(0, dep.min - atQuay); }
+      if (dep) { f.avgang = dep.min; f.linje = dep.linje; f.vent = Math.max(0, dep.min - atQuay); f.fraKai = dep.fraKai; f.tilKai = dep.tilKai; }
       else { f.vent = +D.fergeVent || 0; f.ukjent = true; }
       extra += f.vent; ferger.push(f);
     }
@@ -362,6 +365,55 @@ function drawNear() {
   nearCustomers().forEach(r => L.marker([r.c.lat, r.c.lon], { icon: L.divIcon({ className: "", html: `<div class="nearring"></div>`, iconSize: [30, 30], iconAnchor: [15, 15] }), interactive: false, zIndexOffset: -100 }).addTo(nearLayer));
 }
 
+
+/* ---------- fergeleier i kartet med avgangstabell ---------- */
+async function departuresTable(fromKai, toKai, dateStr, crossMin, chosenMin) {
+  const base = new Date(dateStr + "T00:00:00"), start = new Date(base.getTime() + 4 * 3600000);
+  const d = await entur(`query($id:String!,$t:DateTime!){ stopPlace(id:$id){ name estimatedCalls(startTime:$t, timeRange:86400, numberOfDepartures:80, whiteListedModes:[water]){ expectedDepartureTime aimedDepartureTime cancellation destinationDisplay{frontText} serviceJourney{ line{ name } } } } }`, { id: fromKai.id, t: start.toISOString() });
+  const w = toKai ? word(toKai.name) : "";
+  const rows = (d.stopPlace ? d.stopPlace.estimatedCalls : [])
+    .filter(c => goesTo(c, w))
+    .filter(c => new Date(c.expectedDepartureTime) < new Date(base.getTime() + 28 * 3600000));
+  if (!rows.length) return `<div class="status">Fant ingen avganger denne dagen.</div>`;
+  return `<table class="fttab"><thead><tr><th>Avgang</th><th>Ankomst ca.</th><th>Til</th></tr></thead><tbody>${rows.map(c => {
+    const m = (new Date(c.expectedDepartureTime) - base) / 60000, sel = chosenMin != null && Math.abs(m - chosenMin) < 1;
+    return `<tr class="${sel ? "sel" : ""}${c.cancellation ? " cx" : ""}"><td>${hm(m)}${sel ? " ←" : ""}</td><td>${hm(m + crossMin)}</td><td>${esc(c.destinationDisplay.frontText)}${c.cancellation ? " (innstilt)" : ""}</td></tr>`;
+  }).join("")}</tbody></table>`;
+}
+function ferryPopup(f, dateStr) {
+  const el = document.createElement("div"); el.className = "pop ferrypop";
+  let dir = 0;
+  const draw = async () => {
+    const A = dir === 0 ? f.fraKai : f.tilKai, B = dir === 0 ? f.tilKai : f.fraKai;
+    el.innerHTML = `<h4>⛴ ${esc(f.navn)}</h4>
+      <div class="ftdir"><button type="button" class="chip" data-dir="0" aria-pressed="${dir === 0}">${esc(kaiNavn(f.fraKai.name))} → ${esc(f.tilKai ? kaiNavn(f.tilKai.name) : "")}</button>${f.tilKai ? `<button type="button" class="chip" data-dir="1" aria-pressed="${dir === 1}">${esc(kaiNavn(f.tilKai.name))} → ${esc(kaiNavn(f.fraKai.name))}</button>` : ""}</div>
+      <div class="status">${esc(dato(dateStr))} · overfart ca. ${f.min} min · være på kaia 10 min før</div>
+      <div class="ftbody"><div class="status">Henter avganger fra Entur …</div></div>
+      <a href="https://entur.no" target="_blank" rel="noopener">Åpne i Entur ↗</a>`;
+    el.querySelectorAll("[data-dir]").forEach(b => b.onclick = e => { e.stopPropagation(); dir = +b.dataset.dir; draw() });
+    try {
+      const body = el.querySelector(".ftbody");
+      body.innerHTML = await departuresTable(A, B, dateStr, f.min, dir === 0 ? f.avgang : null);
+      const sel = body.querySelector("tr.sel"); if (sel) body.scrollTop = Math.max(0, sel.offsetTop - 60);
+    }
+    catch (e) { el.querySelector(".ftbody").innerHTML = `<div class="status">Kunne ikke hente avganger: ${esc(e.message)}</div>` }
+  };
+  draw();
+  return el;
+}
+function drawFerries(layer, c, di) {
+  const d = plan.data.dager[di];
+  c.items.forEach(it => (it.leg && it.leg.ferger || []).forEach(f => {
+    if (!f.fra) return;
+    const mk = (pt, main) => L.marker(pt, { icon: L.divIcon({ className: "", html: `<div class="ferryicon${main ? "" : " small"}" title="${esc(f.navn)}">⛴</div>`, iconSize: main ? [30, 30] : [24, 24], iconAnchor: main ? [15, 15] : [12, 12] }), zIndexOffset: 1200 })
+      .bindTooltip(`${esc(f.navn)}${f.avgang != null && main ? ` · avgang ${hm(f.avgang)}` : ""} · klikk for fergetider`, { direction: "top" });
+    const pop = () => f.fraKai ? ferryPopup(f, d.dato) : `<div class="pop"><h4>⛴ ${esc(f.navn)}</h4><div class="status">Fant ikke fergekaia i Entur.</div><a href="https://entur.no" target="_blank" rel="noopener">Søk i Entur ↗</a></div>`;
+    const add = m => m.bindPopup(pop, { maxWidth: 320, minWidth: 270 }).on("popupopen", () => m.closeTooltip()).addTo(layer);
+    add(mk(f.fra, true));
+    if (f.til) add(mk(f.til, false));
+  }));
+}
+
 /* ---------- kart ---------- */
 // Én farge per dag (gjentas etter sju dager). Første og siste etappe tegnes i mørkere nyanse.
 const DAYC = ["#1d5aa8", "#c2410c", "#15803d", "#7e22ce", "#b45309", "#0e7490", "#be185d"];
@@ -391,6 +443,7 @@ function drawPlan() {
       }).addTo(planLayer);
     });
     if (!show) return;
+    drawFerries(planLayer, c, di);
     c.items.forEach(it => {
       if (!it.pt) return;
       const bg = it.kind === "kunde" ? col : dark;
@@ -656,5 +709,5 @@ async function toggle(force) {
   } else recompute();
   setTimeout(() => KK().invalidate(), 0);
 }
-window.KKPlan = { toggle, openPlan, computeDay, leg, ferryDeparture, hm, dur, buildIcs, get open() { return open }, get plan() { return plan }, get computed() { return computed } };
+window.KKPlan = { toggle, openPlan, computeDay, leg, ferryDeparture, departuresTable, hm, dur, buildIcs, get open() { return open }, get plan() { return plan }, get computed() { return computed } };
 })();
