@@ -23,6 +23,7 @@ let GEO = null;          // {kommuner, regmap, reglab, poststeder}
 let RAW = [];            // kunder fra databasen
 let RETT = {};           // kundenr -> rettelse
 let ADR = {};            // kundenr -> besøksadresse (kunde_adresse)
+let PROS = [];           // prospekter (ikke kunder): byggevarehus og takentreprenører
 let INFO = {};           // kundenr -> kjede, konstellasjon, vbl, byggvare (kunde_info)
 let DATA = [];
 let ME = null;           // {epost, navn, rolle}
@@ -71,12 +72,13 @@ async function start() {
         ["kommuner", "regmap", "reglab", "poststeder"].map(f => fetch(`data/${f}.json`).then(r => r.json())));
       GEO = { kommuner, regmap, reglab, poststeder };
     }
-    const [me, k, r, a, inf] = await Promise.all([
+    const [me, k, r, a, inf, pr] = await Promise.all([
       sb.from("tilgang").select("epost,navn,rolle").maybeSingle(),
       sb.from("kunder").select("*"),
       sb.from("sted_rettelse").select("*"),
       sb.from("kunde_adresse").select("*"),
-      sb.from("kunde_info").select("*")
+      sb.from("kunde_info").select("*"),
+      sb.from("prospekter").select("*").eq("skjult", false)
     ]);
     if (k.error) throw k.error;
     ME = me.data;
@@ -93,6 +95,7 @@ async function start() {
     RETT = {}; (r.data || []).forEach(x => RETT[x.kundenr] = x);
     ADR = {}; (a.data || []).forEach(x => ADR[x.kundenr] = x);
     INFO = {}; (inf.data || []).forEach(x => INFO[x.kundenr] = x);
+    PROS = (pr && pr.data || []).map(fromProsp);
     $("tAdr").hidden = !(ME.rolle === "admin" || ME.rolle === "leder");
     $("lstatus").hidden = true;
     initMap();
@@ -108,6 +111,17 @@ function fromDb(c) {
     ps: c.poststed || "", src: c.poststed_kilde || "", kom: c.kommune || "", r: c.region || "", lat: c.lat, lon: c.lon, pr: c.presisjon || "",
     adr: c.besoksadresse || "", pnr: c.postnr || "", br: c.bransje || "", st: c.status || "" };
 }
+const PTYPE = { byggevare: "bv", tak: "tak" };
+const PLABEL = { bv: "Byggevarehus", tak: "Takentreprenør" };
+function fromProsp(x) {
+  return { k: "P" + x.orgnr, pro: PTYPE[x.type] || x.type, n: x.navn, kat: "", e: "", v: 0, p: 0, t: 0, s: "", ps: x.poststed || "", src: "", kom: "", r: x.region || "",
+    lat: x.lat, lon: x.lon, pr: x.lat != null ? "adresse" : "", adr: x.adresse || "", pnr: x.postnr || "", br: x.naering || "", st: "", kj: x.kjede || "", ko: "",
+    orgnr: x.orgnr, oms: x.omsetning, aar: x.regnskapsaar, ans: x.ansatte, web: x.hjemmeside || "", hoved: x.hovedorgnr || "", raw: x };
+}
+const isPros = () => st.pros.size > 0;
+const CUST = () => DATA.filter(c => !c.pro);
+const base = () => isPros() ? DATA.filter(c => c.pro && st.pros.has(c.pro)) : CUST();
+const mnok = v => v == null ? "" : (v / 1e6).toLocaleString("nb-NO", { maximumFractionDigits: v >= 1e8 ? 0 : 1 }) + " mill";
 function applyFix(c) {
   const i = INFO[c.k];
   c = Object.assign({}, c, { kj: i && i.kjede || "", ko: i && i.konstellasjon || "", vbl: !!(i && i.vbl), bv: !!(i && i.byggvare) });
@@ -123,14 +137,15 @@ const FKEYS = { reg: { label: "Region", field: "r", none: "Mangler sted" }, by: 
   eier: { label: "Eier", field: "e" }, kat: { label: "Kategori", field: "kat" },
   kj: { label: "Kjede", field: "kj", none: "Uten kjede", search: true }, ko: { label: "Konstellasjon", field: "ko", none: "Uten konstellasjon" } };
 const FLAGS = { vbl: "VBL-medlem", bv: "Byggvareforhandler" };
+const PROSF = { bv: "Byggevarehus (ikke kunde)", tak: "Takentreprenører >15 mill (ikke kunde)" };
 const NONE = "__none";
 function loadFilters() {
   const f = store.get("kk_filters", null);
-  ["reg", "by", "eier", "kat", "seg", "kj", "ko", "flag"].forEach(k => st[k] = new Set(f && Array.isArray(f[k]) ? f[k] : []));
+  ["reg", "by", "eier", "kat", "seg", "kj", "ko", "flag", "pros"].forEach(k => st[k] = new Set(f && Array.isArray(f[k]) ? f[k] : []));
 }
-function saveFilters() { store.set("kk_filters", Object.fromEntries(["reg", "by", "eier", "kat", "seg", "kj", "ko", "flag"].map(k => [k, [...st[k]]]))) }
+function saveFilters() { store.set("kk_filters", Object.fromEntries(["reg", "by", "eier", "kat", "seg", "kj", "ko", "flag", "pros"].map(k => [k, [...st[k]]]))) }
 loadFilters();
-function count(key) { const m = {}; DATA.forEach(c => { const v = c[key] || NONE; m[v] = (m[v] || 0) + 1 }); return m }
+function count(key) { const m = {}; base().forEach(c => { const v = c[key] || NONE; m[v] = (m[v] || 0) + 1 }); return m }
 function optionsFor(k) {
   const def = FKEYS[k], cnt = count(def.field);
   let items;
@@ -160,7 +175,9 @@ function buildFilters() {
       <button type="button" class="msbtn" aria-haspopup="true" aria-expanded="false" data-k="${k}">${msButtonText(k)}<span class="caret" aria-hidden="true">▾</span></button>
       <div class="mspop" hidden></div>`;
   });
-  $("fFlag").innerHTML = `<span class="seglbl">Vis bare</span>` + Object.entries(FLAGS).map(([k, l]) => `<button type="button" class="chip" data-flag="${k}" aria-pressed="${st.flag.has(k)}">${l} <span class="n">${DATA.filter(c => c[k]).length}</span></button>`).join("");
+  $("fFlag").innerHTML = `<span class="seglbl">Vis bare</span>` + Object.entries(FLAGS).map(([k, l]) => `<button type="button" class="chip" data-flag="${k}" aria-pressed="${st.flag.has(k)}">${l} <span class="n">${CUST().filter(c => c[k]).length}</span></button>`).join("");
+  $("fPros").innerHTML = `<span class="seglbl">Prospekter</span>` + [["bv", "Byggevarehus"], ["tak", "Takentreprenører >15 mill"]].map(([k, l]) => `<button type="button" class="chip" data-pros="${k}" aria-pressed="${st.pros.has(k)}" title="${esc(PROSF[k])}">${l} <span class="n">${DATA.filter(c => c.pro === k).length}</span></button>`).join("");
+  syncProsMode();
   $("fSeg").innerHTML = `<span class="seglbl">Segment</span>` +
     ["A", "B", "C", "D"].map(s => `<button type="button" class="chip" data-seg="${s}" aria-pressed="${st.seg.has(s)}"><span class="dot" style="background:var(--seg${s})"></span>${s}</button>`).join("");
   syncFromState();
@@ -207,6 +224,7 @@ function renderActive() {
   Object.keys(FKEYS).forEach(k => [...st[k]].forEach(v => chips.push({ k, v, label: v === NONE ? FKEYS[k].none : v })));
   [...st.seg].sort().forEach(v => chips.push({ k: "seg", v, label: "Segment " + v }));
   [...st.flag].forEach(v => chips.push({ k: "flag", v, label: FLAGS[v] }));
+  [...st.pros].forEach(v => chips.push({ k: "pros", v, label: PROSF[v] }));
   if (st.q.trim()) chips.push({ k: "q", v: st.q, label: `«${st.q.trim()}»` });
   const A = $("activeF");
   A.hidden = !chips.length;
@@ -217,7 +235,11 @@ function syncFromState() { $("q").value = st.q; $("sort").value = st.sort }
 function filtered() {
   const q = st.q.trim().toLowerCase();
   const inSet = (set, v) => !set.size || set.has(v || NONE);
-  return DATA.filter(c => {
+  if (isPros()) return base().filter(c => {
+    if (q && !(c.n.toLowerCase().includes(q) || (c.orgnr || "").includes(q) || c.ps.toLowerCase().includes(q) || (c.adr || "").toLowerCase().includes(q) || (c.kj || "").toLowerCase().includes(q))) return false;
+    return inSet(st.reg, c.r) && inSet(st.by, c.ps) && inSet(st.kj, c.kj);
+  });
+  return CUST().filter(c => {
     if (q && !(c.n.toLowerCase().includes(q) || c.k.includes(q) || c.ps.toLowerCase().includes(q) || c.kom.toLowerCase().includes(q) || c.br.toLowerCase().includes(q) || (c.adr || "").toLowerCase().includes(q))) return false;
     if (st.flag.has("vbl") && !c.vbl) return false;
     if (st.flag.has("bv") && !c.bv) return false;
@@ -226,13 +248,23 @@ function filtered() {
 }
 function sorted(arr) {
   const a = arr.slice(), ro = r => { const i = REG_ORDER.indexOf(r); return i < 0 ? 99 : i };
-  if (st.sort === "tot") a.sort((x, y) => y.t - x.t);
+  if (st.sort === "tot") a.sort((x, y) => (y.t || y.oms || 0) - (x.t || x.oms || 0));
   else if (st.sort === "navn") a.sort((x, y) => x.n.localeCompare(y.n, "nb"));
   else if (st.sort === "by") a.sort((x, y) => (x.ps || "~").localeCompare(y.ps || "~", "nb") || y.t - x.t);
   else a.sort((x, y) => ro(x.r || "~") - ro(y.r || "~") || x.ps.localeCompare(y.ps, "nb") || y.t - x.t);
   return a;
 }
+function prosRowHtml(c) {
+  const where = [c.ps, c.r && c.r !== c.ps ? c.r : ""].filter(Boolean).join(" · ");
+  return `<button type="button" class="row${st.sel === c.k ? " sel" : ""}" data-k="${esc(c.k)}">
+    <span class="seg P ${c.pro}" title="Prospekt: ${esc(PLABEL[c.pro])}">P</span>
+    <span class="nm">${esc(c.n)}</span>
+    <span class="amt">${c.oms != null ? mnok(c.oms) : ""}<small>${esc(c.orgnr)}</small></span>
+    <span class="meta">${esc(PLABEL[c.pro])}${c.kj && c.kj !== "Frittstående" ? " · " + esc(c.kj) : ""}${where ? " · " + esc(where) : ""}${c.lat == null ? '<span class="nopin">mangler sted</span>' : ""}</span>
+  </button>`;
+}
 function rowHtml(c) {
+  if (c.pro) return prosRowHtml(c);
   const where = [c.ps, c.r && c.r !== c.ps ? c.r : ""].filter(Boolean).join(" · ");
   return `<button type="button" class="row${st.sel === c.k ? " sel" : ""}" data-k="${esc(c.k)}">
     <span class="seg ${esc(c.s)}" title="Segment ${esc(c.s)}">${esc(c.s)}</span>
@@ -243,12 +275,12 @@ function rowHtml(c) {
 }
 function renderList(arr) {
   const L = $("list");
-  if (!arr.length) { L.innerHTML = `<div class="empty">Ingen kunder passer filtrene. Prøv et annet søk eller trykk Nullstill.</div>`; return }
+  if (!arr.length) { L.innerHTML = isPros() ? `<div class="empty">Ingen prospekter passer filtrene. Region, poststed, kjede og søk gjelder også for prospekter.</div>` : `<div class="empty">Ingen kunder passer filtrene. Prøv et annet søk eller trykk Nullstill.</div>`; return }
   let html = "";
   const groupKey = st.sort === "reg" ? c => c.r || "Mangler sted" : st.sort === "by" ? c => c.ps || "Mangler sted" : null;
   if (groupKey) {
     let cur = null, buf = [];
-    const flush = () => { if (cur !== null) { const sum = buf.reduce((s, c) => s + c.t, 0); html += `<div class="grp"><span>${esc(cur)}</span><span>${buf.length} · ${krK(sum)}</span></div>` + buf.map(rowHtml).join("") } };
+    const flush = () => { if (cur !== null) { const sum = buf.reduce((s, c) => s + c.t, 0); html += `<div class="grp"><span>${esc(cur)}</span><span>${buf.length}${isPros() ? "" : " · " + krK(sum)}</span></div>` + buf.map(rowHtml).join("") } };
     arr.forEach(c => { const g = groupKey(c); if (g !== cur) { flush(); cur = g; buf = [] } buf.push(c) }); flush();
   } else html = arr.map(rowHtml).join("");
   L.innerHTML = html;
@@ -302,7 +334,11 @@ function renderMap(arr, fit) {
   groups.forEach(list => {
     const c0 = list[0], ll = [c0.lat, c0.lon]; pts.push(ll);
     let m;
-    if (list.length === 1) {
+    if (list.length === 1 && c0.pro) {
+      m = L.marker(ll, { icon: L.divIcon({ className: "", html: `<div class="prosicon" style="background:${css(c0.pro === "tak" ? "--pros-tak" : "--pros-bv")}"></div>`, iconSize: [14, 14], iconAnchor: [7, 7] }) });
+      m.bindTooltip(`${esc(c0.n)} · ${esc(PLABEL[c0.pro])}${c0.oms != null ? " · " + mnok(c0.oms) : ""}`, { direction: "top" });
+      m.on("click", () => pickCustomer(c0.k));
+    } else if (list.length === 1) {
       m = L.circleMarker(ll, { radius: { A: 10, B: 8.5, C: 7, D: 5.5 }[c0.s] || 6, color: "#fff", weight: 1.5, fillColor: css(c0.kat === "Profil" ? "--profil" : "--vent"), fillOpacity: .95, bubblingMouseEvents: false });
       m.bindTooltip(`${esc(c0.n)} · ${krK(c0.t)}`, { direction: "top" });
       m.on("click", () => pickCustomer(c0.k));
@@ -310,7 +346,7 @@ function renderMap(arr, fit) {
       const sz = Math.min(44, 20 + Math.sqrt(list.length) * 4);
       m = L.marker(ll, { icon: L.divIcon({ className: "", html: `<div class="stackicon" style="width:${sz}px;height:${sz}px">${list.length}</div>`, iconSize: [sz, sz], iconAnchor: [sz / 2, sz / 2] }) });
       const s = list.slice().sort((a, b) => b.t - a.t);
-      m.bindPopup(`<div class="pop"><h4>${esc(c0.ps)} · ${list.length} kunder</h4>${s.map(c => `<button type="button" data-k="${esc(c.k)}"><span class="kat ${esc(c.kat)}"></span>${esc(c.n)} <span class="mut">· ${esc(c.s)} · ${krK(c.t)}</span></button>`).join("")}</div>`, { maxWidth: 300 });
+      m.bindPopup(`<div class="pop"><h4>${esc(c0.ps)} · ${list.length} ${c0.pro ? "prospekter" : "kunder"}</h4>${s.map(c => c.pro ? `<button type="button" data-k="${esc(c.k)}">${esc(c.n)} <span class="mut">· ${esc(PLABEL[c.pro])}${c.oms != null ? " · " + mnok(c.oms) : ""}</span></button>` : `<button type="button" data-k="${esc(c.k)}"><span class="kat ${esc(c.kat)}"></span>${esc(c.n)} <span class="mut">· ${esc(c.s)} · ${krK(c.t)}</span></button>`).join("")}</div>`, { maxWidth: 300 });
     }
     m.addTo(custLayer);
   });
@@ -339,6 +375,7 @@ function select(k, pan = true) {
   st.sel = k; const c = DATA.find(x => x.k === k); if (!c) return;
   document.querySelectorAll(".row.sel").forEach(r => r.classList.remove("sel"));
   const r = document.querySelector(`.row[data-k="${CSS.escape(k)}"]`); if (r) r.classList.add("sel");
+  if (c.pro) return selectPros(c, pan);
   const share = c.t ? Math.round(c.p / c.t * 100) : 0;
   const q = encodeURIComponent([c.n, c.adr, c.ps].filter(Boolean).join(", "));
   let near = "";
@@ -439,7 +476,59 @@ function select(k, pan = true) {
   };
   if (pan && c.lat != null && window.innerWidth > 760) map.setView([c.lat, c.lon], Math.max(map.getZoom(), 10));
 }
-function refreshData(fit) { DATA = RAW.map(applyFix); buildFilters(); render(fit) }
+function refreshData(fit) { DATA = RAW.map(applyFix).concat(PROS); buildFilters(); render(fit) }
+
+/* ---------------- prospekter ---------------- */
+function syncProsMode() {
+  const on = isPros();
+  ["fEier", "fKat", "fKo", "fSeg", "fFlag"].forEach(id => $(id).classList.toggle("dim", on));
+  document.querySelectorAll(".lgpros").forEach(e => e.hidden = !on);
+  $("q").placeholder = on ? "Firmanavn, org.nr., kjede eller sted" : "Kundenavn, kundenr. eller sted";
+}
+function selectPros(c, pan) {
+  const q = encodeURIComponent([c.n, c.adr, c.ps].filter(Boolean).join(", "));
+  const canEdit = ME.rolle === "admin" || ME.rolle === "leder";
+  const brregUrl = `https://virksomhet.brreg.no/nb/oppslag/${c.pro === "tak" ? "enheter" : "underenheter"}/${c.orgnr}`;
+  let near = "";
+  if (c.lat != null) {
+    const n = CUST().filter(x => x.lat != null).map(x => [hav(c.lat, c.lon, x.lat, x.lon), x]).sort((a, b) => a[0] - b[0]).slice(0, 3);
+    if (n.length) near = `<div class="sub">Nærmeste kunder</div><div class="chg">${n.map(([d, x]) => `<div><span>${esc(x.n)} · ${esc(x.s)}</span><span>${d < 1 ? "<1" : d.toFixed(d < 10 ? 1 : 0)} km</span></div>`).join("")}</div>`;
+  }
+  $("detail").innerHTML = `<button type="button" class="x" id="dx" aria-label="Lukk">×</button>
+    <div><span class="ptag ${c.pro}">Prospekt · ${esc(PLABEL[c.pro])}</span></div>
+    <h2>${esc(c.n)}</h2>
+    <dl class="kv">
+      <dt>Org.nr.</dt><dd>${esc(c.orgnr)}${c.hoved && c.hoved !== c.orgnr ? ` <span class="mut">(selskap ${esc(c.hoved)})</span>` : ""}</dd>
+      <dt>Sted</dt><dd>${c.ps ? esc(c.ps) : "<em>Ikke oppgitt</em>"}</dd>
+      ${c.adr ? `<dt>Adresse</dt><dd>${esc(c.adr)}${c.pnr ? `, ${esc(c.pnr)}` : ""}</dd>` : ""}
+      <dt>Region</dt><dd>${esc(c.r || "–")}</dd>
+      ${c.kj ? `<dt>Kjede</dt><dd>${esc(c.kj)}</dd>` : ""}
+      ${c.br ? `<dt>Næring</dt><dd>${esc(c.br)}</dd>` : ""}
+      ${c.ans != null ? `<dt>Ansatte</dt><dd>${esc(c.ans)}</dd>` : ""}
+      <dt>Omsetning</dt><dd>${c.oms != null ? `<b>${kr(c.oms)}</b>${c.aar ? ` <span class="mut">(${c.aar}${c.pro === "bv" ? ", hele selskapet" : ""})</span>` : ""}` : `<span class="mut">${c.kj && c.kj !== "Frittstående" ? "Del av kjede, tall for butikken finnes ikke" : "Ikke tilgjengelig"}</span>`}</dd>
+      ${c.web ? `<dt>Nettside</dt><dd><a href="${esc(/^https?:/.test(c.web) ? c.web : "https://" + c.web)}" target="_blank" rel="noopener">${esc(c.web)}</a></dd>` : ""}
+    </dl>
+    <div class="prosnote">Står ikke på kundelista vår. Hentet fra Brønnøysundregistrene${c.pro === "tak" ? " (næringskode takarbeid eller «tak» i navnet, omsetning over 15 mill)" : " (detalj- og engroshandel med byggevarer)"}.</div>
+    <div class="acts">
+      <a class="btn pri" href="https://www.google.com/maps/search/?api=1&query=${q}" target="_blank" rel="noopener">Åpne i Google Maps ↗</a>
+      ${c.lat != null ? `<button type="button" class="btn" id="dZoom">Vis i kart</button>` : ""}
+      <a class="btn" href="${brregUrl}" target="_blank" rel="noopener">Brønnøysund ↗</a>
+      <a class="btn" href="https://www.proff.no/bransjesøk?q=${esc(c.hoved || c.orgnr)}" target="_blank" rel="noopener">Proff ↗</a>
+      ${canEdit ? `<button type="button" class="btn" id="dHide" title="Fjern fra prospektlista for alle">Skjul prospekt</button>` : ""}
+    </div>
+    <div class="status" id="prosMsg"></div>
+    ${near}`;
+  $("detail").hidden = false;
+  $("dx").onclick = closeDetail;
+  if ($("dZoom")) $("dZoom").onclick = () => { showMap(); map.setView([c.lat, c.lon], Math.max(map.getZoom(), 12)) };
+  if ($("dHide")) $("dHide").onclick = async () => {
+    $("prosMsg").textContent = "Skjuler …";
+    const { error } = await sb.from("prospekter").update({ skjult: true }).eq("orgnr", c.orgnr);
+    if (error) { $("prosMsg").textContent = "Kunne ikke skjule: " + error.message; return }
+    PROS = PROS.filter(x => x.k !== c.k); closeDetail(); refreshData(false);
+  };
+  if (pan && c.lat != null && window.innerWidth > 760) map.setView([c.lat, c.lon], Math.max(map.getZoom(), 10));
+}
 
 /* ---------------- ladestasjoner (NOBIL via Edge Function) ---------------- */
 function drawChargers() {
@@ -509,8 +598,9 @@ $("tCharge").onclick = async () => {
 function render(fit) {
   const arr = sorted(filtered());
   const tot = arr.reduce((s, c) => s + c.t, 0);
-  $("sCount").textContent = nf.format(arr.length); $("sTot").textContent = krK(tot) + " kr";
-  $("lCount").textContent = `${arr.length} av ${DATA.length} kunder`;
+  $("sCount").textContent = nf.format(arr.length); $("sTot").textContent = isPros() ? mnok(arr.reduce((s, c) => s + (c.oms || 0), 0)) : krK(tot) + " kr";
+  $("sCountL").textContent = isPros() ? "Prospekter" : "Kunder"; $("sTotL").textContent = isPros() ? "Kjent omsetning" : "Omsetning 12 mnd";
+  $("lCount").textContent = isPros() ? `${arr.length} av ${base().length} prospekter` : `${arr.length} av ${CUST().length} kunder`;
   renderList(arr); renderMap(arr, fit);
 }
 let qT = null;
@@ -528,6 +618,7 @@ document.addEventListener("click", e => {
   closeDetail();
 });
 $("fFlag").onclick = e => { const b = e.target.closest("[data-flag]"); if (!b) return; const s = b.dataset.flag; st.flag.has(s) ? st.flag.delete(s) : st.flag.add(s); b.setAttribute("aria-pressed", st.flag.has(s)); applyFilters() };
+$("fPros").onclick = e => { const b = e.target.closest("[data-pros]"); if (!b) return; const s = b.dataset.pros; st.pros.has(s) ? st.pros.delete(s) : st.pros.add(s); closeDetail(); saveFilters(); buildFilters(); render(true) };
 $("fSeg").onclick = e => { const b = e.target.closest("[data-seg]"); if (!b) return; const s = b.dataset.seg; st.seg.has(s) ? st.seg.delete(s) : st.seg.add(s); b.setAttribute("aria-pressed", st.seg.has(s)); applyFilters() };
 $("activeF").onclick = e => {
   if (e.target.closest(".aclear")) return $("reset").click();
@@ -536,11 +627,12 @@ $("activeF").onclick = e => {
   if (k === "q") { st.q = ""; $("q").value = "" } else st[k].delete(v);
   if (k === "seg") document.querySelector(`[data-seg="${v}"]`).setAttribute("aria-pressed", "false");
   if (k === "flag") document.querySelector(`[data-flag="${v}"]`).setAttribute("aria-pressed", "false");
+  if (k === "pros") { st.pros.delete(v); saveFilters(); buildFilters(); render(true); return }
   if (FKEYS[k]) { const w = $("f" + k[0].toUpperCase() + k.slice(1)); w.querySelector(".msbtn").innerHTML = msButtonText(k) + `<span class="caret" aria-hidden="true">▾</span>` }
   saveFilters(); renderActive(); render(true);
 };
 $("sort").onchange = e => { st.sort = e.target.value; store.set("kk_sort", st.sort); render(false) };
-$("reset").onclick = () => { st.q = ""; ["reg", "by", "eier", "kat", "seg", "kj", "ko", "flag"].forEach(k => st[k].clear()); saveFilters(); buildFilters(); render(true) };
+$("reset").onclick = () => { st.q = ""; ["reg", "by", "eier", "kat", "seg", "kj", "ko", "flag", "pros"].forEach(k => st[k].clear()); saveFilters(); buildFilters(); render(true) };
 $("list").onclick = e => { const r = e.target.closest(".row"); if (r) select(r.dataset.k) };
 function showMap() {
   if (window.innerWidth <= 760) {

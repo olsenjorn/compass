@@ -326,7 +326,7 @@ function nearCustomers() {
   let s = 90, n = -90, w = 180, e = -180;
   poly.forEach(p => { s = Math.min(s, p[0]); n = Math.max(n, p[0]); w = Math.min(w, p[1]); e = Math.max(e, p[1]) });
   const padLon = pad / Math.cos(((s + n) / 2) * Math.PI / 180);
-  return KK().DATA.filter(x => x.lat != null && !inPlan.has(x.k) && (!nearAB || x.s === "A" || x.s === "B") && x.lat >= s - pad && x.lat <= n + pad && x.lon >= w - padLon && x.lon <= e + padLon)
+  return KK().DATA.filter(x => !x.pro && x.lat != null && !inPlan.has(x.k) && (!nearAB || x.s === "A" || x.s === "B") && x.lat >= s - pad && x.lat <= n + pad && x.lon >= w - padLon && x.lon <= e + padLon)
     .map(x => ({ c: x, ...distToRoute([x.lat, x.lon], poly) })).filter(r => r.d <= nearKm).sort((a, b) => a.along - b.along);
 }
 function addNear(k) {

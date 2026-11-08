@@ -20,7 +20,7 @@ body{margin:0}
   --profil:#1d5aa8; --vent:#b8572a; --stack:#1b2620;
   --segA:#0d6b5c; --segB:#4f8a3a; --segC:#a8811d; --segD:#8a948f;
   --warn-bg:#fbf1dc; --warn-ink:#6f5210;
-  --kom-line:rgba(24,33,43,.45); --charge:#c08a12; --hotel:#7a3e9d; --late:#b3261e; --c0:#1d5aa8; --c1:#b8572a; --c2:#2f7d4f; --c3:#7a3e9d; --c4:#a8811d; --c5:#0f6e8c;
+  --pros-bv:#2f7d4f; --pros-tak:#8c2f6b; --kom-line:rgba(24,33,43,.45); --charge:#c08a12; --hotel:#7a3e9d; --late:#b3261e; --c0:#1d5aa8; --c1:#b8572a; --c2:#2f7d4f; --c3:#7a3e9d; --c4:#a8811d; --c5:#0f6e8c;
   --f-display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
   --f-body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
 }
@@ -31,7 +31,7 @@ body{margin:0}
   --accent:#7fb0ec; --accent-ink:#0b1a2c; --accent-soft:#1a2c44;
   --profil:#7fb0ec; --vent:#e48a5c; --stack:#e4ebe7;
   --segA:#4fbfa8; --segB:#8cc271; --segC:#d9b04b; --segD:#7f8b86;
-  --kom-line:rgba(227,233,239,.45); --charge:#e3b23c; --hotel:#c39be0; --late:#f2a49c; --c0:#7fb0ec; --c1:#e48a5c; --c2:#7cc79a; --c3:#c39be0; --c4:#d9b04b; --c5:#5fc1db; --warn-bg:#352a12; --warn-ink:#ecd193; color-scheme:dark}}
+  --pros-bv:#7cc79a; --pros-tak:#e08cc3; --kom-line:rgba(227,233,239,.45); --charge:#e3b23c; --hotel:#c39be0; --late:#f2a49c; --c0:#7fb0ec; --c1:#e48a5c; --c2:#7cc79a; --c3:#c39be0; --c4:#d9b04b; --c5:#5fc1db; --warn-bg:#352a12; --warn-ink:#ecd193; color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#10151b; --panel:#161d25; --ink:#e3e9ef; --muted:#97a3b0; --line:#28323d;
   --sea:#0e141a; --land:#1b232c; --land-line:#3a4653;
@@ -39,7 +39,7 @@ body{margin:0}
   --accent:#7fb0ec; --accent-ink:#0b1a2c; --accent-soft:#1a2c44;
   --profil:#7fb0ec; --vent:#e48a5c; --stack:#e4ebe7;
   --segA:#4fbfa8; --segB:#8cc271; --segC:#d9b04b; --segD:#7f8b86;
-  --kom-line:rgba(227,233,239,.45); --charge:#e3b23c; --hotel:#c39be0; --late:#f2a49c; --c0:#7fb0ec; --c1:#e48a5c; --c2:#7cc79a; --c3:#c39be0; --c4:#d9b04b; --c5:#5fc1db; --warn-bg:#352a12; --warn-ink:#ecd193; color-scheme:dark}
+  --pros-bv:#7cc79a; --pros-tak:#e08cc3; --kom-line:rgba(227,233,239,.45); --charge:#e3b23c; --hotel:#c39be0; --late:#f2a49c; --c0:#7fb0ec; --c1:#e48a5c; --c2:#7cc79a; --c3:#c39be0; --c4:#d9b04b; --c5:#5fc1db; --warn-bg:#352a12; --warn-ink:#ecd193; color-scheme:dark}
 [hidden]{display:none!important}
 html,body{height:100%}
 body{background:var(--bg);color:var(--ink);font:15px/1.45 var(--f-body);display:flex;flex-direction:column;overflow:hidden}
@@ -406,6 +406,19 @@ body.planning .legend{display:none}
   .legend{bottom:calc(22px + env(safe-area-inset-bottom,0px))}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* prospekter */
+.f.dim{opacity:.4;pointer-events:none}
+.chips.pros{border-top:1px dashed var(--line);padding-top:8px}
+.chip[data-pros="bv"][aria-pressed="true"]{background:var(--pros-bv);border-color:var(--pros-bv);color:var(--panel)}
+.chip[data-pros="tak"][aria-pressed="true"]{background:var(--pros-tak);border-color:var(--pros-tak);color:var(--panel)}
+.seg.P{background:transparent;border:2px dashed currentColor;font-size:12px}
+.seg.P.bv{color:var(--pros-bv)}.seg.P.tak{color:var(--pros-tak)}
+.legend i.sq{border-radius:2px;transform:rotate(45deg) scale(.8)}
+.prosicon{width:12px;height:12px;transform:rotate(45deg);border:1.5px solid #fff;border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,.25)}
+.prosnote{font-size:13px;color:var(--muted);background:var(--accent-soft);border-radius:8px;padding:8px 10px}
+.ptag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border-radius:4px;padding:1px 6px;color:var(--panel)}
+.ptag.bv{background:var(--pros-bv)}.ptag.tak{background:var(--pros-tak)}
 </style>
 </head>
 <body>
@@ -468,8 +481,8 @@ body.planning .legend{display:none}
       <button id="vMap" aria-pressed="false">Kart</button>
     </div>
     <div class="sum" aria-live="polite">
-      <div><b id="sCount">–</b><span>Kunder</span></div>
-      <div><b id="sTot">–</b><span>Omsetning 12 mnd</span></div>
+      <div><b id="sCount">–</b><span id="sCountL">Kunder</span></div>
+      <div><b id="sTot">–</b><span id="sTotL">Omsetning 12 mnd</span></div>
       <div><b id="sPin">–</b><span>I kartet</span></div>
     </div>
   </nav>
@@ -489,6 +502,7 @@ body.planning .legend{display:none}
       <div class="f ms" id="fKo"></div>
       <div class="f full chips" role="group" aria-label="Segment" id="fSeg"></div>
       <div class="f full chips" role="group" aria-label="Vis bare" id="fFlag"></div>
+      <div class="f full chips pros" role="group" aria-label="Prospekter" id="fPros"></div>
     </div>
     <div class="active" id="activeF" hidden aria-label="Aktive filtre"></div>
     <div class="listhead">
@@ -514,6 +528,8 @@ body.planning .legend{display:none}
       <div><i style="background:var(--profil)"></i>Profil</div>
       <div><i style="background:var(--vent)"></i>Ventilasjon</div>
       <div><i style="background:var(--stack)"></i>Flere kunder på samme sted</div>
+      <div class="lgpros" hidden><i class="sq" style="background:var(--pros-bv)"></i>Prospekt: byggevarehus</div>
+      <div class="lgpros" hidden><i class="sq" style="background:var(--pros-tak)"></i>Prospekt: takentreprenør</div>
       <div class="note">Plassert på postnummer eller poststed, ikke gateadresse.</div>
     </div>
     <div class="detail" id="detail" hidden></div>
