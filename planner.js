@@ -48,7 +48,11 @@ async function leg(a, b) {
       const rt = j && j.routes && j.routes[0];
       if (!rt) throw new Error("ingen rute");
       const ferger = [];
-      (rt.legs || []).forEach(lg => (lg.steps || []).forEach(st => { if (st.mode === "ferry") ferger.push({ navn: st.name || "Ferge", min: Math.round(st.duration / 60), km: Math.round(st.distance / 1000) }) }));
+      (rt.legs || []).forEach(lg => { let off = 0; const sts = lg.steps || []; sts.forEach((st, i) => {
+        if (st.mode === "ferry") { const nx = sts[i + 1]; ferger.push({ navn: st.name || "Ferge", min: Math.round(st.duration / 60), km: Math.round(st.distance / 1000), off: off / 60,
+          fra: st.maneuver ? [st.maneuver.location[1], st.maneuver.location[0]] : null, til: nx && nx.maneuver ? [nx.maneuver.location[1], nx.maneuver.location[0]] : null }) }
+        off += st.duration;
+      }) });
       return { min: rt.duration / 60, km: rt.distance / 1000, geom: rt.geometry.coordinates.map(c => [c[1], c[0]]), est: false, ferger };
     } catch (e) {
       const d = hav(a, b) * 1.35;
@@ -58,6 +62,38 @@ async function leg(a, b) {
   RC.set(key, p);
   const v = await p; if (v.est) RC.delete(key); // prøv igjen neste gang
   return v;
+}
+
+
+/* ---------- fergeavganger (Entur) ---------- */
+const FERRY_CHECKIN = 10; // være på kaia 10 min før avgang
+const ENTUR = "https://api.entur.io/journey-planner/v3/graphql";
+const EC = new Map();
+async function entur(query, variables) {
+  const r = await fetch(ENTUR, { method: "POST", headers: { "Content-Type": "application/json", "ET-Client-Name": "lindab-kundekartnord" }, body: JSON.stringify({ query, variables }) });
+  const j = await r.json(); if (j.errors) throw new Error(j.errors[0].message); return j.data;
+}
+async function quayNear(pt) {
+  const key = "q" + pt[0].toFixed(3) + "," + pt[1].toFixed(3);
+  if (!EC.has(key)) EC.set(key, entur(`query($lat:Float!,$lon:Float!){ nearest(latitude:$lat, longitude:$lon, maximumDistance:4000, filterByModes:[water], filterByPlaceTypes:[stopPlace], first:1){ edges{ node{ place{ ... on StopPlace { id name } } } } } }`, { lat: pt[0], lon: pt[1] })
+    .then(d => { const e = d.nearest.edges[0]; return e ? e.node.place : null }).catch(() => { EC.delete(key); return null }));
+  return EC.get(key);
+}
+const word = n => String(n || "").toLowerCase().replace(/\b(ferjekai|fergekai|ferjeleie|kai)\b/g, "").trim().split(/[\s,-]+/)[0];
+async function ferryDeparture(f, dateStr, fromMin) {
+  if (!f.fra || !dateStr) return null;
+  const [from, to] = await Promise.all([quayNear(f.fra), f.til ? quayNear(f.til) : null]);
+  if (!from) return null;
+  const base = new Date(dateStr + "T00:00:00"), start = new Date(base.getTime() + Math.round(fromMin) * 60000);
+  const qStart = new Date(Math.floor(start.getTime() / 600000) * 600000); // spør per 10 minutter
+  const key = `d${from.id}|${qStart.toISOString()}`;
+  if (!EC.has(key)) EC.set(key, entur(`query($id:String!,$t:DateTime!){ stopPlace(id:$id){ estimatedCalls(startTime:$t, timeRange:86400, numberOfDepartures:20, whiteListedModes:[water]){ expectedDepartureTime destinationDisplay{frontText} serviceJourney{ line{ name } } } } }`, { id: from.id, t: qStart.toISOString() })
+    .then(d => d.stopPlace ? d.stopPlace.estimatedCalls : []).catch(() => { EC.delete(key); return [] }));
+  const calls = await EC.get(key);
+  const w = to ? word(to.name) : "";
+  const hit = calls.find(c => new Date(c.expectedDepartureTime) >= start && (!w || (c.destinationDisplay.frontText + " " + c.serviceJourney.line.name).toLowerCase().includes(w)));
+  if (!hit) return null;
+  return { min: (new Date(hit.expectedDepartureTime) - base) / 60000, linje: hit.serviceJourney.line.name };
 }
 
 /* ---------- tilstand ---------- */
@@ -91,11 +127,22 @@ async function computeDay(day, di = 0) {
     if (!prev || !pt) return null;
     const L = await leg(prev, pt);
     const pauses = D.pause ? Math.floor(L.min / PAUSE_ETTER) : 0;
-    const fw = (L.ferger || []).length * (+D.fergeVent || 0);
+    // Ferger: finn neste avgang i Entur ut fra når vi er på kaia; ellers fast ventetid
+    let extra = 0;
+    const ferger = [];
+    for (const f0 of (L.ferger || [])) {
+      const f = { ...f0 };
+      const atQuay = t + f.off + extra;
+      const dep = await ferryDeparture(f, day.dato, atQuay + FERRY_CHECKIN).catch(() => null);
+      if (dep) { f.avgang = dep.min; f.linje = dep.linje; f.vent = Math.max(0, dep.min - atQuay); }
+      else { f.vent = +D.fergeVent || 0; f.ukjent = true; }
+      extra += f.vent; ferger.push(f);
+    }
+    const fw = extra;
     const total = L.min + pauses * PAUSE_MIN + fw;
-    if ((L.ferger || []).length) out.ferger.push(...L.ferger);
+    if (ferger.length) out.ferger.push(...ferger);
     out.driveMin += L.min; out.km += L.km; if (L.est) out.est = true;
-    return { ...L, pauses, total, fw };
+    return { ...L, ferger, pauses, total, fw };
   };
   for (const st of day.stopp) {
     const c = kunde(st.k);
@@ -411,7 +458,7 @@ function render() {
     <div class="plrow small">
       <label>Standard besøk <input type="number" id="plMin" min="5" step="5" value="${D.besokMin}" ${ro}> min</label>
       <label class="chk"><input type="checkbox" id="plPause" ${D.pause ? "checked" : ""} ${ro}> 30 min pause per 4 t kjøring</label>
-      <label>Ventetid ferge <input type="number" id="plFerge" min="0" step="5" value="${+D.fergeVent || 0}" ${ro}> min</label>
+      <label title="Brukes når ruteplanen for fergen ikke finnes">Ventetid ferge uten ruteplan <input type="number" id="plFerge" min="0" step="5" value="${+D.fergeVent || 0}" ${ro}> min</label>
     </div>
     <div class="plsum">${D.dager.length} dag${D.dager.length > 1 ? "er" : ""} · ${tot.v} besøk · ${km(tot.km)} · kjøring ${dur(tot.drive)} <span class="status" id="plStatus"></span></div>
     <div class="pltabs" role="tablist"><button type="button" class="chip ovbtn" id="plOverview" aria-pressed="${overview}">Hele ruta</button>${D.dager.map((d, i) => `<button type="button" role="tab" class="chip" data-day="${i}" aria-pressed="${!overview && i === active}"><span class="dot" style="background:${dayColor(i)}"></span>Dag ${i + 1} · ${esc(dato(d.dato))}</button>`).join("")}${readonly ? "" : `<button type="button" class="chip add" id="plAddDay">+ Dag</button>`}</div>
@@ -438,7 +485,9 @@ function startHtml(d, ro) {
 function legHtml(L) {
   if (!L) return "";
   if (L.km < 0.2) return `<div class="leg">↓ Samme sted</div>`;
-  const fer = (L.ferger || []).map(f => `<div class="ferry">⛴ ${esc(f.navn)} · overfart ${f.min} min${L.fw ? ` + ${plan.data.fergeVent} min ventetid` : ""} · <a href="https://entur.no" target="_blank" rel="noopener">sjekk avganger</a></div>`).join("");
+  const fer = (L.ferger || []).map(f => f.avgang != null
+    ? `<div class="ferry">⛴ ${esc(f.navn)} · avgang <b>${hm(f.avgang)}</b>${f.vent > 0 ? ` (venter ${dur(f.vent)})` : ""} · overfart ${f.min} min</div>`
+    : `<div class="ferry">⛴ ${esc(f.navn)} · overfart ${f.min} min + ${f.vent} min ventetid <span class="est">fant ikke ruteplan</span> · <a href="https://entur.no" target="_blank" rel="noopener">sjekk avganger</a></div>`).join("");
   return `<div class="leg">↓ Kjøring ${dur(L.min)} · ${km(L.km)}${L.pauses ? ` · + ${L.pauses * PAUSE_MIN} min pause` : ""}${L.est ? ` <span class="est">anslått</span>` : ""}${fer}</div>`;
 }
 function dayHtml(d, c, ro) {
@@ -607,5 +656,5 @@ async function toggle(force) {
   } else recompute();
   setTimeout(() => KK().invalidate(), 0);
 }
-window.KKPlan = { toggle, openPlan, computeDay, leg, hm, dur, buildIcs, get open() { return open }, get plan() { return plan }, get computed() { return computed } };
+window.KKPlan = { toggle, openPlan, computeDay, leg, ferryDeparture, hm, dur, buildIcs, get open() { return open }, get plan() { return plan }, get computed() { return computed } };
 })();
