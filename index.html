@@ -327,6 +327,9 @@ body.planning .legend{display:none}
 .nearring{width:30px;height:30px;border-radius:50%;border:3px solid var(--charge);box-shadow:0 0 0 2px var(--panel)}
 
 .ferryicon{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:#0e7490;color:#fff;font-size:16px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35);cursor:pointer}
+.ferryicon.quay{width:20px;height:20px;font-size:11px;border-width:1.5px;transition:transform .15s}
+.quays-far .ferryicon.quay{transform:scale(.7)}
+.ferrypop .ftdate{border:1px solid var(--line);border-radius:999px;padding:2px 8px;font:inherit;font-size:12px;background:var(--bg);color:var(--ink)}
 .ferryicon.small{width:24px;height:24px;font-size:13px;opacity:.9}
 .ferrypop{display:flex;flex-direction:column;gap:6px}
 .ftdir{display:flex;gap:6px;flex-wrap:wrap}
@@ -561,5 +564,6 @@ body.planning .legend{display:none}
 <script src="adresser.js"></script>
 <script src="planner.js"></script>
 <script src="calendar.js"></script>
+<script src="ferger.js"></script>
 </body>
 </html>
