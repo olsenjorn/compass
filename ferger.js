@@ -82,8 +82,9 @@ async function init() {
   const tools = document.querySelector(".maptools");
   const btn = document.createElement("button");
   btn.className = "tool"; btn.id = "tFerry";
-  const charge = $("tCharge");
-  if (charge && charge.nextSibling) tools.insertBefore(btn, charge.nextSibling); else tools.appendChild(btn);
+  btn.dataset.order = 10;
+  const after = [...tools.children].find(x => +(x.dataset.order || 0) > 10);
+  after ? tools.insertBefore(btn, after) : tools.appendChild(btn);
   const sync = on => {
     btn.setAttribute("aria-pressed", String(on));
     btn.innerHTML = `${SVG}Fergeleier<span class="tstate">${on ? "Vises" : "Skjult"}</span>`;

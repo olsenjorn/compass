@@ -9,7 +9,18 @@ const LOGO = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"
 function init() {
   const map = window.KK && window.KK.map;
   if (!map) return setTimeout(init, 400);
-  const layer = L.layerGroup().addTo(map);
+  const layer = L.layerGroup();
+  const ON = "kk_avd_on", get = () => { try { return JSON.parse(localStorage.getItem(ON) ?? "true") } catch (e) { return true } };
+  const btn = document.createElement("button"); btn.className = "tool"; btn.id = "tAvd"; btn.dataset.order = 20;
+  const tools = document.querySelector(".maptools"), after = [...tools.children].find(x => +(x.dataset.order || 0) > 20);
+  after ? tools.insertBefore(btn, after) : tools.appendChild(btn);
+  const sync = on => {
+    btn.setAttribute("aria-pressed", String(on));
+    btn.innerHTML = `${LOGO.replace('width="16" height="16"', 'width="15" height="15"')}Lindab-avdelinger<span class="tstate">${on ? "Vises" : "Skjult"}</span>`;
+    btn.title = on ? "Skjul Lindab-avdelingene" : "Vis Lindab-avdelingene";
+    on ? layer.addTo(map) : layer.remove();
+  };
+  btn.onclick = () => { const on = btn.getAttribute("aria-pressed") !== "true"; try { localStorage.setItem(ON, JSON.stringify(on)) } catch (e) { } if (!on) map.closePopup(); sync(on) };
   AVD.forEach(a => {
     const q = encodeURIComponent(`${a.adresse}, ${a.postnr} ${a.sted}`);
     L.marker([a.lat, a.lon], {
@@ -19,6 +30,7 @@ function init() {
       <a href="https://www.google.com/maps/search/?api=1&query=${q}" target="_blank" rel="noopener">Åpne i Google Maps ↗</a></div>`, { maxWidth: 260 })
       .addTo(layer);
   });
+  sync(get());
 }
 init();
 window.KKAvd = AVD;

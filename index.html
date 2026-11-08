@@ -330,10 +330,14 @@ body.planning .legend{display:none}
 .legend.hidepop{visibility:hidden}
 .avdicon{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 9px 0 6px;border-radius:14px;background:var(--brand);color:#fff;font:700 13px var(--f-display);letter-spacing:.02em;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);white-space:nowrap;cursor:pointer}
 .tool .tstate{font-size:11px;font-weight:700;opacity:.75;margin-left:2px;padding-left:8px;border-left:1px solid currentColor}
+.lunchicon{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:#fff;font-size:12px;line-height:1;border:1.5px solid #c2410c;box-shadow:0 1px 3px rgba(0,0,0,.3);cursor:pointer}
+.lunchicon.bensin{border-color:#475569}.lunchicon.butikk,.lunchicon.kiosk{border-color:#15803d}
 .ferryicon.quay{width:20px;height:20px;font-size:11px;border-width:1.5px;transition:transform .15s}
 .quays-far .legend.hidepop{visibility:hidden}
 .avdicon{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 9px 0 6px;border-radius:14px;background:var(--brand);color:#fff;font:700 13px var(--f-display);letter-spacing:.02em;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);white-space:nowrap;cursor:pointer}
 .tool .tstate{font-size:11px;font-weight:700;opacity:.75;margin-left:2px;padding-left:8px;border-left:1px solid currentColor}
+.lunchicon{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:#fff;font-size:12px;line-height:1;border:1.5px solid #c2410c;box-shadow:0 1px 3px rgba(0,0,0,.3);cursor:pointer}
+.lunchicon.bensin{border-color:#475569}.lunchicon.butikk,.lunchicon.kiosk{border-color:#15803d}
 .ferryicon.quay{transform:scale(.7)}
 .ferrypop .ftdate{border:1px solid var(--line);border-radius:999px;padding:2px 8px;font:inherit;font-size:12px;background:var(--bg);color:var(--ink)}
 .ferryicon.small{width:24px;height:24px;font-size:13px;opacity:.9}
@@ -539,6 +543,7 @@ body.planning .legend{display:none}
       <div><i style="background:var(--stack)"></i>Flere kunder på samme sted</div>
       <div><i style="background:var(--brand);border-radius:3px"></i>Lindab-avdeling</div>
       <div><i style="background:#0e7490"></i>Fergeleie (klikk for fergetider)</div>
+      <div class="lglunch" hidden>🥐 ⛽ 🛒 ☕ 🍔 Lunsjstopp</div>
       <div class="lgpros" hidden><i class="sq" style="background:var(--pros-bv)"></i>Prospekt: byggevarehus</div>
       <div class="lgpros" hidden><i class="sq" style="background:var(--pros-tak)"></i>Prospekt: takentreprenør</div>
       <div class="note">Plassert på postnummer eller poststed, ikke gateadresse.</div>
@@ -567,12 +572,13 @@ body.planning .legend{display:none}
 </div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=20261108c"></script>
-<script src="app.js?v=20261108c"></script>
-<script src="adresser.js?v=20261108c"></script>
-<script src="planner.js?v=20261108c"></script>
-<script src="calendar.js?v=20261108c"></script>
-<script src="ferger.js?v=20261108c"></script>
-<script src="avdelinger.js?v=20261108c"></script>
+<script src="config.js?v=20261108d"></script>
+<script src="app.js?v=20261108d"></script>
+<script src="adresser.js?v=20261108d"></script>
+<script src="planner.js?v=20261108d"></script>
+<script src="calendar.js?v=20261108d"></script>
+<script src="ferger.js?v=20261108d"></script>
+<script src="avdelinger.js?v=20261108d"></script>
+<script src="lunsj.js?v=20261108d"></script>
 </body>
 </html>
