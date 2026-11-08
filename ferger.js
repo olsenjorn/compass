@@ -10,6 +10,7 @@ async function entur(query, variables) {
   const r = await fetch(ENTUR, { method: "POST", headers: { "Content-Type": "application/json", "ET-Client-Name": "lindab-kundekartnord" }, body: JSON.stringify({ query, variables }) });
   const j = await r.json(); if (j.errors) throw new Error(j.errors[0].message); return j.data;
 }
+const SVG = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M5 15h14l-2.2 4.2c-.2.5-.7.8-1.2.8H8.4c-.5 0-1-.3-1.2-.8L5 15zm3-6h8l1.5 5h-11L8 9zm2.5-4h3v3h-3V5z"/></svg>';
 const kai = n => String(n || "").replace(/\s*(ferjekai|fergekai|ferjeleie)\b/ig, "").trim();
 const pad = n => String(n).padStart(2, "0");
 const ymd = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -80,13 +81,19 @@ async function init() {
   if (!map) return setTimeout(init, 400);
   const tools = document.querySelector(".maptools");
   const btn = document.createElement("button");
-  btn.className = "tool"; btn.id = "tFerry"; btn.textContent = "⛴ Fergeleier";
-  btn.setAttribute("aria-pressed", String(store.get(ON, true)));
-  tools.appendChild(btn);
+  btn.className = "tool"; btn.id = "tFerry";
+  const charge = $("tCharge");
+  if (charge && charge.nextSibling) tools.insertBefore(btn, charge.nextSibling); else tools.appendChild(btn);
+  const sync = on => {
+    btn.setAttribute("aria-pressed", String(on));
+    btn.innerHTML = `${SVG}Fergeleier<span class="tstate">${on ? "Vises" : "Skjult"}</span>`;
+    btn.title = on ? "Skjul fergeleiene fra kartet" : "Vis fergeleiene i kartet";
+  };
+  sync(store.get(ON, true));
   btn.onclick = () => {
     const on = btn.getAttribute("aria-pressed") !== "true";
-    btn.setAttribute("aria-pressed", String(on)); store.set(ON, on);
-    if (layer) on ? layer.addTo(map) : layer.remove();
+    sync(on); store.set(ON, on);
+    if (layer) on ? layer.addTo(map) : (map.closePopup(), layer.remove());
   };
   map.on("zoomend", () => sizeByZoom(map)); sizeByZoom(map);
   const lg = document.querySelector(".legend");
