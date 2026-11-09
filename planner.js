@@ -28,11 +28,12 @@ const AVT = {
   privat: { l: "Privat avtale", sym: "P", min: 60 },
   internt: { l: "Internt møte", sym: "I", min: 60 },
   kontor_harstad: { l: "Kontortid Lindab Harstad", sym: "L", min: 120, avd: "Harstad" },
-  kontor_tromso: { l: "Kontortid Lindab Tromsø", sym: "L", min: 120, avd: "Tromsø" }
+  kontor_tromso: { l: "Kontortid Lindab Tromsø", sym: "L", min: 120, avd: "Tromsø" },
+  sted: { l: "Stopp på sted (flyplass, adresse …)", sym: "S", min: 30, sted: true }
 };
 const LUNSJ_FRA = 11 * 60, LUNSJ_TIL = 12 * 60 + 30, LUNSJ_MIN = 30;
 const isAvt = st => st && st.type === "avtale";
-const avtNavn = st => (st.tittel && st.tittel.trim()) || (AVT[st.kat] || {}).l || "Avtale";
+const avtNavn = st => (st.tittel && st.tittel.trim()) || st.sted || (AVT[st.kat] || {}).l || "Avtale";
 
 /* ---------- tid ---------- */
 const ceil15 = v => Math.ceil(Math.round(v) / 15) * 15; // runder opp til nærmeste kvarter
@@ -138,7 +139,7 @@ function mapsUrl(c) {
 }
 function avdPt(sted) { const a = (window.KKAvd || []).find(v => v.sted === sted); return a ? [a.lat, a.lon] : null }
 function stopPt(st) {
-  if (isAvt(st)) { const a = AVT[st.kat]; return a && a.avd ? avdPt(a.avd) : null }
+  if (isAvt(st)) { const a = AVT[st.kat]; if (a && a.sted) return st.lat != null ? [st.lat, st.lon] : null; return a && a.avd ? avdPt(a.avd) : null }
   const c = kunde(st.k); return c && c.lat != null ? [c.lat, c.lon] : null;
 }
 /* ---------- ferge som alternativ: kjør til kai, ta fergen, kjør videre ---------- */
@@ -293,7 +294,7 @@ function summary() {
       stopp: c.items.filter(x => x.kind !== "start").map(x => x.kind === "kunde"
         ? { n: x.n, type: "kunde", k: x.st.k, status: x.st.status || "planlagt", skip: !!x.skip, kontakt: x.st.kontakt || "", navn: x.c ? x.c.n : x.st.k, sted: x.c ? [x.c.adr, x.c.ps].filter(Boolean).join(", ") : "", fra: Math.round(x.begin), til: Math.round(x.end), ankomst: Math.round(x.arr), kjoring: x.leg ? Math.round(x.leg.total) : 0 }
         : x.kind === "avtale"
-        ? { n: x.n, type: "avtale", kat: x.st.kat, navn: avtNavn(x.st), sted: (AVT[x.st.kat] || {}).avd ? "Lindab " + AVT[x.st.kat].avd : "", fra: Math.round(x.begin), til: Math.round(x.end), ankomst: Math.round(x.arr), kjoring: x.leg ? Math.round(x.leg.total) : 0 }
+        ? { n: x.n, type: "avtale", kat: x.st.kat, navn: avtNavn(x.st), sted: (AVT[x.st.kat] || {}).avd ? "Lindab " + AVT[x.st.kat].avd : (x.st.adr || x.st.sted || ""), fra: Math.round(x.begin), til: Math.round(x.end), ankomst: Math.round(x.arr), kjoring: x.leg ? Math.round(x.leg.total) : 0 }
         : x.kind === "lunsj"
         ? { n: x.n, type: "lunsj", navn: "Lunsj", fra: Math.round(x.begin), til: Math.round(x.end), ankomst: Math.round(x.begin), kjoring: 0, underveis: !!x.underveis }
         : { n: x.n, type: d.slutt.type, navn: d.slutt.type === "hjem" ? "Hjem" : d.slutt.navn, sted: d.slutt.adr || "", ankomst: Math.round(x.arr), kjoring: x.leg ? Math.round(x.leg.total) : 0 })
@@ -753,7 +754,7 @@ function dayHtml(d, c, ro) {
         const a = AVT[x.st.kat] || {};
         h += `<div class="step avt"><span class="pn avt">${esc(x.n)}</span><div class="sbody">
           <b>${esc(avtNavn(x.st))}</b>
-          <div class="mut">${esc(a.l || "Avtale")}${a.avd ? ` · ankomst ${hm(x.arr)}` : ""}${x.wait > 1 ? ` · ledig ${dur(x.wait)} før` : ""}</div>
+          <div class="mut">${a.sted ? esc(x.st.adr || x.st.sted || "Mangler sted") : esc(a.l || "Avtale")}${a.avd || (a.sted && x.pt) ? ` · ankomst ${hm(x.arr)}` : ""}${a.sted && x.pt ? ` · <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((x.st.sted || "") + (x.st.adr ? ", " + x.st.adr : "") || x.pt.join(","))}" target="_blank" rel="noopener">Google Maps ↗</a>` : ""}${x.wait > 1 ? ` · ledig ${dur(x.wait)} før` : ""}</div>
           ${x.late ? `<div class="late">Rekker ikke kl. ${esc(x.st.avtalt)}: ${dur(x.late)} for sent.</div>` : ""}
           <div class="when"><b>${hm(x.begin)}–${hm(x.end)}</b></div>
           <div class="plrow small">
@@ -801,6 +802,10 @@ function dayHtml(d, c, ro) {
           <div class="plrow small wrap">
             <select id="avKat">${Object.entries(AVT).map(([k, v]) => `<option value="${k}">${v.l}</option>`).join("")}</select>
             <input class="grow" id="avTit" placeholder="Beskrivelse (valgfritt)">
+          </div>
+          <div class="plrow small wrap" id="avStedRow" hidden>
+            <label class="f grow">Sted eller adresse<input id="avSted" list="avStedList" placeholder="F.eks. Evenes lufthavn eller Storgata 1, 9405 Harstad" autocomplete="off"></label>
+            <datalist id="avStedList">${FLYPLASSER.map(f => `<option value="${esc(f[1])}"></option>`).join("")}${(window.KKAvd || []).map(a => `<option value="${esc(a.navn + ", " + a.adresse + ", " + a.postnr + " " + a.sted)}"></option>`).join("")}</datalist>
           </div>
           <div class="plrow small wrap">
             <label>Kl. <input type="time" id="avKl"></label>
@@ -900,10 +905,20 @@ function bind() {
   if ($("acQ")) $("acQ").onchange = () => { if (/· [^·]+$/.test($("acQ").value)) $("acForm").requestSubmit() };
   if ($("dAvt")) $("dAvt").onclick = () => { avtMode = !avtMode; render(); if (avtMode) $("avKat").focus() };
   if ($("avCancel")) $("avCancel").onclick = () => { avtMode = false; render() };
-  if ($("avKat")) $("avKat").onchange = e => { $("avMin").value = AVT[e.target.value].min };
-  if ($("avtForm")) $("avtForm").onsubmit = e => {
+  if ($("avKat")) $("avKat").onchange = e => { $("avMin").value = AVT[e.target.value].min; $("avStedRow").hidden = !AVT[e.target.value].sted; if (AVT[e.target.value].sted) $("avSted").focus() };
+  if ($("avtForm")) $("avtForm").onsubmit = async e => {
     e.preventDefault();
     const st = { type: "avtale", kat: $("avKat").value, tittel: $("avTit").value.trim(), min: Math.max(5, +$("avMin").value || AVT[$("avKat").value].min), avtalt: $("avKl").value || "" };
+    if (AVT[st.kat].sted) {
+      const v = $("avSted").value.trim(); if (!v) { flash("Skriv stedet eller adressen."); return }
+      const nv = v.toLowerCase(), fp = FLYPLASSER.find(f => f[1].toLowerCase() === nv || f[0].toLowerCase() === nv || (/lufthavn|flyplass/.test(nv) && nv.replace(/lufthavn|flyplass/g, " ").split(/\s+/).filter(w => w.length > 2).every(w => f[1].toLowerCase().includes(w))));
+      if (fp) Object.assign(st, { sted: fp[1], lat: fp[2], lon: fp[3] });
+      else {
+        const g = await window.KKAdr.geocodeFree(v.replace(/^Lindab [^,]+,\s*/, "")).catch(() => null);
+        if (!g) { flash("Fant ikke stedet. Skriv gate, nummer og postnummer, eller velg en flyplass fra lista."); return }
+        Object.assign(st, { sted: /^\D+$/.test(v) || v.startsWith("Lindab") ? v.split(",")[0] : `${g.adresse}`, adr: `${g.adresse}, ${g.postnr} ${g.poststed}`, lat: g.lat, lon: g.lon });
+      }
+    }
     insertByTime(d, active, st);
     avtMode = false; flash(`${avtNavn(st)} er lagt inn.`); change();
   };
