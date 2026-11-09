@@ -218,7 +218,7 @@ function summary() {
       start: st.t, slutt: Math.round(c.end), km: Math.round(c.km), kjoring: Math.round(c.driveMin), besok: c.visits,
       fra: d.start.type === "fly" ? `Fly ${d.start.flyplass || ""}`.trim() : d.start.type === "hotell" ? (d.start.navn || "Hotell") : "Hjemme",
       stopp: c.items.filter(x => x.kind !== "start").map(x => x.kind === "kunde"
-        ? { n: x.n, type: "kunde", k: x.st.k, navn: x.c ? x.c.n : x.st.k, sted: x.c ? [x.c.adr, x.c.ps].filter(Boolean).join(", ") : "", fra: Math.round(x.begin), til: Math.round(x.end), ankomst: Math.round(x.arr), kjoring: x.leg ? Math.round(x.leg.total) : 0 }
+        ? { n: x.n, type: "kunde", k: x.st.k, status: x.st.status === "avtalt" ? "avtalt" : "planlagt", kontakt: x.st.kontakt || "", navn: x.c ? x.c.n : x.st.k, sted: x.c ? [x.c.adr, x.c.ps].filter(Boolean).join(", ") : "", fra: Math.round(x.begin), til: Math.round(x.end), ankomst: Math.round(x.arr), kjoring: x.leg ? Math.round(x.leg.total) : 0 }
         : x.kind === "avtale"
         ? { n: x.n, type: "avtale", kat: x.st.kat, navn: avtNavn(x.st), sted: (AVT[x.st.kat] || {}).avd ? "Lindab " + AVT[x.st.kat].avd : "", fra: Math.round(x.begin), til: Math.round(x.end), ankomst: Math.round(x.arr), kjoring: x.leg ? Math.round(x.leg.total) : 0 }
         : x.kind === "lunsj"
@@ -634,7 +634,11 @@ function dayHtml(d, c, ro) {
         <b>${esc(x.c ? x.c.n : x.st.k)}</b>
         <div class="mut">${esc(x.c ? x.c.ps : "")} · ankomst ${hm(x.arr)}${x.wait > 1 ? ` · venter ${dur(x.wait)}` : ""}</div>
         ${x.late ? `<div class="late">Rekker ikke avtalen kl. ${esc(x.st.avtalt)}: ${dur(x.late)} for sent.</div>` : ""}
-        <div class="when">Besøk <b>${hm(x.begin)}–${hm(x.end)}</b></div>
+        <div class="when">Besøk <b>${hm(x.begin)}–${hm(x.end)}</b> <span class="stbadge ${x.st.status === "avtalt" ? "ok" : ""}">${x.st.status === "avtalt" ? "✓ Avtalt" : "Planlagt"}</span>${x.st.kontakt ? ` <span class="mut">· ${esc(x.st.kontakt)}</span>` : ""}</div>
+        <div class="plrow small">
+          <label>Status <select data-i="${x.si}" data-f="status" ${ro}><option value="planlagt" ${x.st.status !== "avtalt" ? "selected" : ""}>Planlagt</option><option value="avtalt" ${x.st.status === "avtalt" ? "selected" : ""}>Avtalt</option></select></label>
+          <input class="grow" data-i="${x.si}" data-f="kontakt" value="${esc(x.st.kontakt || "")}" placeholder="Kontaktperson som deltar" ${ro}>
+        </div>
         <div class="plrow small">
           <label>Varighet <input type="number" min="5" step="5" data-i="${x.si}" data-f="min" value="${esc(x.st.min)}" ${ro}> min</label>
           <label>Avtalt kl. <input type="time" data-i="${x.si}" data-f="avtalt" value="${esc(x.st.avtalt || "")}" ${ro}></label>
@@ -786,7 +790,7 @@ function buildIcs() {
     s.stopp.forEach(x => {
       const arr = x.ankomst;
       if (x.kjoring > 0) ev(d.dato, arr - x.kjoring, arr, `Kjøring til ${x.navn}`, "", `${plan.tittel} · dag ${i + 1}`);
-      if (x.type === "kunde") ev(d.dato, x.fra, x.til, `Kundebesøk: ${x.navn}`, x.sted, `Kundenr. ${x.k} · ${plan.tittel} · dag ${i + 1}`);
+      if (x.type === "kunde") ev(d.dato, x.fra, x.til, `${x.status === "avtalt" ? "Kundemøte" : "Kundebesøk (ikke avtalt)"}: ${x.navn}`, x.sted, `Kundenr. ${x.k}${x.kontakt ? ` · Kontakt: ${x.kontakt}` : ""} · ${x.status === "avtalt" ? "Avtalt" : "Planlagt"} · ${plan.tittel} · dag ${i + 1}`);
       else if (x.type === "avtale") ev(d.dato, x.fra, x.til, x.navn, x.sted, `${plan.tittel} · dag ${i + 1}`);
       else if (x.type === "lunsj") ev(d.dato, x.fra, x.til, x.underveis ? "Lunsj (underveis)" : "Lunsj", "", `${plan.tittel} · dag ${i + 1}`);
       else if (x.type === "hotell") ev(d.dato, arr, arr + 15, `Hotell: ${x.navn}`, x.sted, `Innsjekk · ${plan.tittel}`);

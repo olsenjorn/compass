@@ -28,7 +28,7 @@ async function load() {
     const s = p.data.sammendrag && p.data.sammendrag[i];
     events.push({ id: p.id, day: i, dato: d.dato, tittel: p.tittel, av: p.laget_av, mine: p.laget_av === mine, farge: people.indexOf(p.laget_av) % 6,
       start: s ? s.start : null, slutt: s ? s.slutt : null, km: s ? s.km : null, besok: s ? s.besok : d.stopp.length, fra: s ? s.fra : "",
-      stopp: s ? s.stopp : d.stopp.map(x => ({ type: "kunde", navn: (KK().DATA.find(c => c.k === x.k) || {}).n || x.k })),
+      stopp: s ? s.stopp : d.stopp.map(x => x.type === "avtale" ? { type: "avtale", navn: x.tittel || "Avtale" } : ({ type: "kunde", status: x.status, navn: (KK().DATA.find(c => c.k === x.k) || {}).n || x.k })),
       hotell: d.slutt && d.slutt.type === "hotell" ? d.slutt.navn : "" });
   }));
   events.sort((a, b) => a.dato.localeCompare(b.dato) || (a.start ?? 0) - (b.start ?? 0));
@@ -40,11 +40,11 @@ function chip(e) {
     <b>${esc(e.mine ? e.tittel : seller(e.av))}</b><span>${e.mine ? "" : esc(e.tittel) + " · "}${e.besok} besøk${e.hotell ? " · " + esc(e.hotell) : ""}</span></button>`;
 }
 function card(e) {
-  const kunder = e.stopp.filter(x => x.type === "kunde");
+  const kunder = e.stopp.filter(x => x.type === "kunde" || x.type === "avtale");
   return `<button type="button" class="ccard c${e.farge}${e.mine ? " mine" : ""}" data-id="${e.id}" data-day="${e.day}">
     <div class="cct"><b>${esc(e.tittel)}</b>${e.mine ? "" : `<span class="who">${esc(seller(e.av))}</span>`}</div>
     <div class="ccm">${e.start != null ? `${hm(e.start)}–${hm(e.slutt)}` : "Ikke beregnet"}${e.km != null ? ` · ${e.km} km` : ""} · dag ${e.day + 1}</div>
-    <ol>${kunder.slice(0, 8).map(x => `<li>${x.fra != null ? `<span class="t">${hm(x.fra)}</span>` : ""}${esc(x.navn)}</li>`).join("")}${kunder.length > 8 ? `<li class="more">+${kunder.length - 8} til</li>` : ""}</ol>
+    <ol>${kunder.slice(0, 8).map(x => `<li>${x.fra != null ? `<span class="t">${hm(x.fra)}</span>` : ""}${x.type === "avtale" ? "◆ " : ""}${esc(x.navn)}${x.status === "avtalt" ? " ✓" : ""}</li>`).join("")}${kunder.length > 8 ? `<li class="more">+${kunder.length - 8} til</li>` : ""}</ol>
     ${e.hotell ? `<div class="cch">Hotell: ${esc(e.hotell)}</div>` : ""}
   </button>`;
 }
