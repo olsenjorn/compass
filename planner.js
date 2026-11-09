@@ -339,7 +339,14 @@ const hnorm = s => String(s || "").toLowerCase().normalize("NFD").replace(/[\u03
 function filterHotels() {
   const all = hotelAll || [], from = hotelState.from, q = hnorm(hotelQ).trim();
   let list;
-  if (q) { const words = q.split(/\s+/); list = all.filter(h => { const t = hnorm(h.navn + " " + h.brand + " " + h.adr); return words.every(w => t.includes(w)) }) }
+  if (q) {
+    const words = q.split(/\s+/);
+    list = all.filter(h => { const t = hnorm(h.navn + " " + h.brand + " " + h.adr); return words.every(w => t.includes(w)) });
+    // Stedsnavn: ta også med overnatting innen 15 km fra stedet
+    const PS = (KK().GEO && KK().GEO.poststeder) || {};
+    const place = q.length >= 3 && Object.entries(PS).find(([n]) => hnorm(n) === q) || (q.length >= 4 && Object.entries(PS).find(([n]) => hnorm(n).startsWith(q)));
+    if (place) { const p = place[1], have = new Set(list); all.forEach(h => { if (!have.has(h) && hav([p[0], p[1]], [h.lat, h.lon]) < 15) list.push(h) }); if (!from) list.sort((a, b) => hav([p[0], p[1]], [a.lat, a.lon]) - hav([p[0], p[1]], [b.lat, b.lon])) }
+  }
   else if (from) list = all.filter(h => hav(from, [h.lat, h.lon]) < 25);
   else list = all.slice();
   if (from) list.sort((a, b) => hav(from, [a.lat, a.lon]) - hav(from, [b.lat, b.lon]));
