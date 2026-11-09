@@ -308,32 +308,69 @@ function addDay() {
 /* ---------- hotell ---------- */
 function clearHotels() { if (hotelLayer) hotelLayer.clearLayers() }
 let hotelState = { loading: false, list: [], err: "", from: null };
+const HOTEL_KEY = "kk_hotels_nn_v1", HOTEL_TTL = 30 * 864e5;
+let hotelAll = null, hotelLoading = null, hotelQ = "";
+function loadHotelsNN() {
+  if (hotelAll) return Promise.resolve(hotelAll);
+  const c = loadHotelsNN.live || store.get("kk_hotels_live", false) ? store.get(HOTEL_KEY, null) : null;
+  if (c && Date.now() - c.ts < HOTEL_TTL && c.list && c.list.length) { hotelAll = c.list; return Promise.resolve(hotelAll) }
+  if (hotelLoading) return hotelLoading;
+  if (!loadHotelsNN.live) {
+    // Fast hotellregister for Nord-Norge som følger med appen (OpenStreetMap) – lastes umiddelbart
+    const TY = { h: "hotel", m: "motel", g: "guest_house", v: "hostel", a: "apartment" };
+    hotelLoading = fetch("data/hotell.json?v=20261109").then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json() })
+      .then(a => { hotelAll = a.map(x => ({ navn: x[0], brand: x[1], lat: x[2], lon: x[3], typ: TY[x[4]] || "hotel", adr: x[5] })); return hotelAll })
+      .finally(() => { hotelLoading = null });
+    return hotelLoading;
+  }
+  const q = `[out:json][timeout:60];nwr["tourism"~"^(hotel|motel|guest_house|hostel|apartment)$"](64.9,10.5,71.4,31.5);out center tags;`;
+  hotelLoading = fetch("https://overpass-api.de/api/interpreter", { method: "POST", body: "data=" + encodeURIComponent(q), headers: { "Content-Type": "application/x-www-form-urlencoded" } })
+    .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json() })
+    .then(j => {
+      const list = (j.elements || []).map(e => { const t = e.tags || {}; return { navn: t.name || t.brand || "", brand: t.brand || "", lat: e.lat ?? (e.center && e.center.lat), lon: e.lon ?? (e.center && e.center.lon), typ: t.tourism,
+        adr: [t["addr:street"], t["addr:housenumber"]].filter(Boolean).join(" ") + (t["addr:city"] ? ", " + t["addr:city"] : t["addr:postcode"] ? ", " + t["addr:postcode"] : "") } })
+        .filter(h => h.lat != null && h.navn);
+      hotelAll = list; store.set(HOTEL_KEY, { ts: Date.now(), list }); store.set("kk_hotels_live", true); return list;
+    })
+    .finally(() => { hotelLoading = null });
+  return hotelLoading;
+}
+const hnorm = s => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/ø/g, "o").replace(/æ/g, "ae").replace(/å/g, "a");
+function filterHotels() {
+  const all = hotelAll || [], from = hotelState.from, q = hnorm(hotelQ).trim();
+  let list;
+  if (q) { const words = q.split(/\s+/); list = all.filter(h => { const t = hnorm(h.navn + " " + h.brand + " " + h.adr); return words.every(w => t.includes(w)) }) }
+  else if (from) list = all.filter(h => hav(from, [h.lat, h.lon]) < 25);
+  else list = all.slice();
+  if (from) list.sort((a, b) => hav(from, [a.lat, a.lon]) - hav(from, [b.lat, b.lon]));
+  return list;
+}
+function refreshHotels() {
+  const list = filterHotels();
+  hotelState.list = list;
+  const el = $("plHotels"); if (el) el.innerHTML = hotelsHtml();
+  bindHotelRows();
+  drawHotels(list.slice(0, 150));
+  if (hotelQ && list.length) { const map = KK().map, pts = list.slice(0, 40).map(h => [h.lat, h.lon]); if (pts.length === 1) map.setView(pts[0], 13); else map.fitBounds(L.latLngBounds(pts).pad(.15), { maxZoom: 13 }) }
+}
+function bindHotelRows() { document.querySelectorAll("#planner .hrow").forEach(btn => btn.onclick = () => { const h = hotelState.list[+btn.dataset.h]; if (h) setEnd({ type: "hotell", navn: h.navn, lat: h.lat, lon: h.lon, adr: h.adr }) }) }
 async function showHotels(recenter = true) {
   const map = KK().map, c = computed[active];
   const last = c && [...c.items].reverse().find(i => i.pt && i.kind !== "slutt");
   if (last && recenter) map.setView(last.pt, Math.max(map.getZoom(), 11));
-  hotelMode = true; hotelState = { loading: true, list: [], err: "", from: last ? last.pt : null }; render();
-  const b = map.getBounds().pad(.3);
-  const q = `[out:json][timeout:20];nwr["tourism"~"^(hotel|motel|guest_house|hostel|apartment)$"](${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()});out center 80;`;
-  try {
-    const r = await fetch("https://overpass-api.de/api/interpreter", { method: "POST", body: "data=" + encodeURIComponent(q), headers: { "Content-Type": "application/x-www-form-urlencoded" } });
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    const j = await r.json();
-    const list = (j.elements || []).map(e => ({ navn: (e.tags && (e.tags.name || e.tags.brand)) || "", lat: e.lat ?? (e.center && e.center.lat), lon: e.lon ?? (e.center && e.center.lon), typ: e.tags && e.tags.tourism,
-      adr: e.tags ? [e.tags["addr:street"], e.tags["addr:housenumber"]].filter(Boolean).join(" ") + (e.tags["addr:city"] ? ", " + e.tags["addr:city"] : "") : "" }))
-      .filter(h => h.lat != null && h.navn);
-    if (last) list.sort((a, b2) => hav(last.pt, [a.lat, a.lon]) - hav(last.pt, [b2.lat, b2.lon]));
-    hotelState = { loading: false, list, err: "", from: hotelState.from };
-    drawHotels(list);
-  } catch (e) { hotelState = { loading: false, list: [], err: e.message, from: hotelState.from } }
-  if (hotelMode) render();
+  hotelMode = true; hotelQ = "";
+  hotelState = { loading: !hotelAll, list: [], err: "", from: last ? last.pt : null }; render();
+  setTimeout(() => { const i = $("hQ"); if (i) i.focus() }, 30);
+  try { await loadHotelsNN(); hotelState.loading = false; hotelState.err = "" }
+  catch (e) { hotelState.loading = false; hotelState.err = e.message }
+  if (hotelMode) refreshHotels();
 }
 function hotelsHtml() {
   const H = hotelState;
-  if (H.loading) return `<div class="status">Søker etter overnatting i kartutsnittet …</div>`;
+  if (H.loading) return `<div class="status">Henter hotellregisteret …</div>`;
   if (H.err) return `<div class="status">Fikk ikke hentet hoteller (${esc(H.err)}). Skriv adressen under.</div>`;
-  if (!H.list.length) return `<div class="status">Fant ingen overnatting i utsnittet. Zoom ut og trykk «Søk på nytt», eller skriv adressen under.</div>`;
-  return `<div class="status">${H.list.length} steder. Klikk på H i kartet eller velg i lista.</div><div class="hlist">${H.list.slice(0, 25).map((h, i) => `<button type="button" class="hrow" data-h="${i}"><b>${esc(h.navn)}</b><span>${esc(h.adr || TYP[h.typ] || "")}${H.from ? ` · ${hav(H.from, [h.lat, h.lon]).toFixed(1)} km` : ""}</span></button>`).join("")}</div>`;
+  if (!H.list.length) return `<div class="status">${hotelQ ? `Ingen treff på «${esc(hotelQ)}».` : "Ingen overnatting innen 25 km. Søk på navn eller sted."}</div>`;
+  return `<div class="status">${H.list.length} treff${hotelQ ? "" : " innen 25 km"}${H.from ? ", nærmest først" : ""}. Klikk på H i kartet eller velg i lista.</div><div class="hlist">${H.list.slice(0, 60).map((h, i) => `<button type="button" class="hrow" data-h="${i}"><b>${esc(h.navn)}</b><span>${esc(h.adr || TYP[h.typ] || "")}${H.from ? ` · ${hav(H.from, [h.lat, h.lon]).toFixed(1)} km` : ""}</span></button>`).join("")}</div>`;
 }
 const TYP = { hotel: "Hotell", motel: "Motell", guest_house: "Gjestehus", hostel: "Vandrerhjem", apartment: "Leilighet" };
 function drawHotels(list) {
@@ -548,7 +585,15 @@ function renderPicker() {
   sel.innerHTML = `<option value="">${plan && !plan.id ? "Ny rute (ikke lagret)" : "Velg rute …"}</option>` +
     plans.map(p => `<option value="${p.id}" ${plan && plan.id === p.id ? "selected" : ""}>${esc(p.tittel)}${p.laget_av !== mine ? ` · ${esc(p.laget_av.split("@")[0])}` : ""}</option>`).join("");
 }
+// Ikke tegn panelet på nytt midt i et klikk (blur → change → render ville ellers sluke klikket)
+let holdRender = false, pendingRender = false;
+document.addEventListener("pointerdown", e => { if (e.target.closest && e.target.closest("#planner")) holdRender = true }, true);
+const releaseRender = () => setTimeout(() => { if (!holdRender) return; holdRender = false; if (pendingRender) { pendingRender = false; render() } }, 0);
+document.addEventListener("pointerup", releaseRender, true);
+document.addEventListener("pointercancel", releaseRender, true);
 function render() {
+  if (holdRender) { pendingRender = true; return }
+  pendingRender = false;
   const P = $("planner"); if (!P || !open) return;
   if (!plan) { P.innerHTML = `<div class="empty">Laster ruter …</div>`; return }
   const D = plan.data, c = computed[active];
@@ -680,8 +725,8 @@ function dayHtml(d, c, ro) {
         ${d.lunsj && d.lunsj.av ? `<button type="button" class="btn" id="dLunsj">+ Lunsj</button>` : ""}
         <button type="button" class="btn ${hotelMode ? "pri" : ""}" id="dHotel">${d.slutt && d.slutt.type === "hotell" ? "Bytt hotell" : "Avslutt med hotell"}</button>
         <button type="button" class="btn" id="dHome">Kjør hjem</button></div>`;
-      if (hotelMode) h += `<div class="hotels"><div id="plHotels">${hotelsHtml()}</div>
-        <button type="button" class="linkbtn" id="hAgain">Søk på nytt i kartutsnittet</button>
+      if (hotelMode) h += `<div class="hotels"><label class="f">Søk hotell<input id="hQ" value="${esc(hotelQ)}" placeholder="F.eks. Scandic, Thon, Svolvær …" autocomplete="off"></label><div id="plHotels">${hotelsHtml()}</div>
+        <button type="button" class="linkbtn" id="hAgain" title="Henter ferske data fra OpenStreetMap (tar opptil 1 minutt)">Hent ferskt hotellregister</button>
         <form id="hForm" class="fixrow"><label class="f">Eller skriv adressen<input id="hAdr" placeholder="Torget 1, 8300 Svolvær"></label><button class="btn" type="submit">Bruk</button></form>
         <button type="button" class="linkbtn" id="hCancel">Avbryt</button></div>`;
     }
@@ -773,9 +818,10 @@ function bind() {
   document.querySelectorAll("#planner [data-rm]").forEach(b => b.onclick = () => { d.stopp.splice(+b.dataset.rm, 1); change() });
   if ($("dHotel")) $("dHotel").onclick = () => hotelMode ? (hotelMode = false, clearHotels(), render()) : showHotels();
   if ($("dHome")) $("dHome").onclick = () => { const home = store.get("kk_home", { adresse: DEFAULT_HOME }); setEnd({ type: "hjem", navn: home.adresse, lat: home.lat, lon: home.lon }) };
-  if ($("dEndRm")) $("dEndRm").onclick = () => { d.slutt = null; change() };
-  document.querySelectorAll("#planner .hrow").forEach(btn => btn.onclick = () => { const h = hotelState.list[+btn.dataset.h]; setEnd({ type: "hotell", navn: h.navn, lat: h.lat, lon: h.lon, adr: h.adr }) });
-  if ($("hAgain")) $("hAgain").onclick = () => showHotels(false);
+  if ($("dEndRm")) $("dEndRm").onclick = () => { const was = d.slutt; d.slutt = null; hotelMode = false; clearHotels(); flash(was && was.type === "hotell" ? `${was.navn || "Hotellet"} er fjernet fra dagen.` : "Slutten av dagen er fjernet."); change() };
+  bindHotelRows();
+  if ($("hAgain")) $("hAgain").onclick = () => { hotelAll = null; loadHotelsNN.live = true; try { localStorage.removeItem(HOTEL_KEY) } catch (e) { } showHotels(false) };
+  if ($("hQ")) $("hQ").oninput = e => { hotelQ = e.target.value; refreshHotels() };
   if ($("hCancel")) $("hCancel").onclick = () => { hotelMode = false; clearHotels(); render() };
   if ($("hForm")) $("hForm").onsubmit = async e => {
     e.preventDefault();
