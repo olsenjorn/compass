@@ -129,6 +129,10 @@ async function ensureHome(day) {
   }
 }
 const SYM = { hjem: "⌂", hotell: "H", fly: "✈" };
+function mapsUrl(c) {
+  const q = c.adr ? [c.n, c.adr, c.pnr && c.ps ? `${c.pnr} ${c.ps}` : c.ps].filter(Boolean).join(", ") : (c.lat != null ? `${c.lat},${c.lon}` : [c.n, c.ps].filter(Boolean).join(", "));
+  return "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(q);
+}
 function avdPt(sted) { const a = (window.KKAvd || []).find(v => v.sted === sted); return a ? [a.lat, a.lon] : null }
 function stopPt(st) {
   if (isAvt(st)) { const a = AVT[st.kat]; return a && a.avd ? avdPt(a.avd) : null }
@@ -282,6 +286,8 @@ function setEnd(slutt) {
   change();
 }
 let avtMode = false;
+function acLabel(c) { return `${c.n} · ${c.ps || "uten sted"}${c.pro ? " (prospekt)" : ""} · ${c.k}` }
+function acOptions() { return KK().DATA.filter(c => c.lat != null || !c.pro).map(c => `<option value="${esc(acLabel(c))}"></option>`).join("") }
 // Setter et stopp inn på riktig plass ut fra klokkeslett (avtalt), ellers sist
 function insertByTime(dd, di, st) {
   const kl = toMin(st.avtalt), c = computed[di];
@@ -374,6 +380,8 @@ function nearCustomers() {
 }
 function addNear(k) {
   const c = kunde(k), d = day(); if (!c) return;
+  if (d.stopp.some(x => x.k === k)) { flash(`${c.n} er allerede med denne dagen.`); return }
+  if (c.lat == null) { d.stopp.push({ k, min: plan.data.besokMin || 60, avtalt: "" }); flash(`${c.n} lagt inn sist i dagen (mangler kartposisjon).`); change(); return }
   const pt = [c.lat, c.lon], comp = computed[active];
   const pts = d.stopp.map(stopPt);
   const startPt = comp && comp.items[0].pt, endPt = d.slutt && d.slutt.lat != null ? [d.slutt.lat, d.slutt.lon] : null;
@@ -632,7 +640,7 @@ function dayHtml(d, c, ro) {
       }
       h += `<div class="step"><span class="pn">${x.n}</span><div class="sbody">
         <b>${esc(x.c ? x.c.n : x.st.k)}</b>
-        <div class="mut">${esc(x.c ? x.c.ps : "")} · ankomst ${hm(x.arr)}${x.wait > 1 ? ` · venter ${dur(x.wait)}` : ""}</div>
+        <div class="mut">${esc(x.c ? [x.c.adr, x.c.ps].filter(Boolean).join(", ") : "")} · ankomst ${hm(x.arr)}${x.wait > 1 ? ` · venter ${dur(x.wait)}` : ""}${x.c ? ` · <a href="${mapsUrl(x.c)}" target="_blank" rel="noopener">Google Maps ↗</a>` : ""}</div>
         ${x.late ? `<div class="late">Rekker ikke avtalen kl. ${esc(x.st.avtalt)}: ${dur(x.late)} for sent.</div>` : ""}
         <div class="when">Besøk <b>${hm(x.begin)}–${hm(x.end)}</b> <span class="stbadge ${x.st.status === "avtalt" ? "ok" : ""}">${x.st.status === "avtalt" ? "✓ Avtalt" : "Planlagt"}</span>${x.st.kontakt ? ` <span class="mut">· ${esc(x.st.kontakt)}</span>` : ""}</div>
         <div class="plrow small">
@@ -665,6 +673,8 @@ function dayHtml(d, c, ro) {
           <div class="mut">Med klokkeslett havner avtalen på riktig plass i dagen. Uten havner den sist, og du flytter den med ↑ ↓.</div>
           <div class="acts"><button class="btn pri" type="submit">Legg til</button><button class="btn" type="button" id="avCancel">Avbryt</button></div>
         </form>` : "";
+      h += `<form class="addcust" id="acForm" autocomplete="off"><label class="f">Legg til kunde i dagen<input id="acQ" list="acList" placeholder="Skriv kundenavn eller sted …"></label><button class="btn" type="submit">Legg til</button></form>
+        <datalist id="acList">${acOptions()}</datalist>`;
       h += `<div class="acts endacts">
         <button type="button" class="btn" id="dAvt">+ Avtale</button>
         ${d.lunsj && d.lunsj.av ? `<button type="button" class="btn" id="dLunsj">+ Lunsj</button>` : ""}
@@ -727,6 +737,9 @@ function bind() {
     else s[f] = f === "min" ? Math.max(5, +inp.value || 60) : inp.value;
     change();
   });
+  document.querySelectorAll('#planner input[data-f="min"]').forEach(inp => inp.oninput = () => {
+    clearTimeout(inp._t); inp._t = setTimeout(() => { const s = d.stopp[+inp.dataset.i]; const v = +inp.value; if (!s || !(v >= 5) || +s.min === v) return; s.min = v; change() }, 700);
+  });
   document.querySelectorAll("#planner [data-mvday]").forEach(sel => sel.onchange = () => {
     if (sel.value === "") return;
     const j = +sel.value, s = d.stopp.splice(+sel.dataset.mvday, 1)[0], t = D.dager[j];
@@ -738,6 +751,15 @@ function bind() {
   if ($("luKl")) $("luKl").onchange = e => { d.lunsj = { ...(d.lunsj || {}), kl: e.target.value || "" }; change() };
   if ($("luRm")) $("luRm").onclick = () => { d.lunsj = { ...(d.lunsj || {}), av: true }; flash("Lunsj er fjernet for denne dagen. Legg den inn igjen med «+ Lunsj»."); change() };
   if ($("dLunsj")) $("dLunsj").onclick = () => { d.lunsj = { ...(d.lunsj || {}), av: false }; change() };
+  if ($("acForm")) $("acForm").onsubmit = e => {
+    e.preventDefault();
+    const v = $("acQ").value.trim(); if (!v) return;
+    const k = (v.match(/· ([^·]+)$/) || [])[1];
+    let c = k && kunde(k.trim());
+    if (!c) { const q = v.toLowerCase(); const hits = KK().DATA.filter(x => x.n.toLowerCase().includes(q)); if (hits.length === 1) c = hits[0]; else { flash(hits.length ? `${hits.length} treff. Velg kunden fra lista.` : "Fant ingen kunde med det navnet."); return } }
+    addNear(c.k);
+  };
+  if ($("acQ")) $("acQ").onchange = () => { if (/· [^·]+$/.test($("acQ").value)) $("acForm").requestSubmit() };
   if ($("dAvt")) $("dAvt").onclick = () => { avtMode = !avtMode; render(); if (avtMode) $("avKat").focus() };
   if ($("avCancel")) $("avCancel").onclick = () => { avtMode = false; render() };
   if ($("avKat")) $("avKat").onchange = e => { $("avMin").value = AVT[e.target.value].min };
