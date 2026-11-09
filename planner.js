@@ -54,10 +54,11 @@ async function leg(a, b, opt = {}) {
     try {
       const wait = Math.max(0, lastOsrm + 350 - Date.now()); lastOsrm = Date.now() + wait;
       if (wait) await new Promise(r => setTimeout(r, wait));
-      const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${a[1]},${a[0]};${b[1]},${b[0]}?overview=simplified&geometries=geojson&steps=true${opt.noFerry ? "&exclude=ferry" : ""}`);
+      const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${a[1]},${a[0]};${b[1]},${b[0]}?overview=simplified&geometries=geojson&steps=true${opt.noFerry ? "&alternatives=3" : ""}`);
       const j = await r.json();
-      const rt = j && j.routes && j.routes[0];
-      if (!rt) throw new Error("ingen rute");
+      const hasFerry = x => (x.legs || []).some(lg => (lg.steps || []).some(st => st.mode === "ferry"));
+      const rt = j && j.routes && (opt.noFerry ? j.routes.find(x => !hasFerry(x)) : j.routes[0]);
+      if (!rt) { if (opt.noFerry && j && j.routes && j.routes.length) return { none: true }; throw new Error("ingen rute") }
       const ferger = [];
       (rt.legs || []).forEach(lg => { let off = 0; const sts = lg.steps || []; sts.forEach((st, i) => {
         if (st.mode === "ferry") { const nx = sts[i + 1]; ferger.push({ navn: st.name || "Ferge", min: Math.round(st.duration / 60), km: Math.round(st.distance / 1000), off: off / 60,
@@ -66,12 +67,14 @@ async function leg(a, b, opt = {}) {
       }) });
       return { min: rt.duration / 60, km: rt.distance / 1000, geom: rt.geometry.coordinates.map(c => [c[1], c[0]]), est: false, ferger };
     } catch (e) {
+      if (opt.noFerry) return { none: true, est: true };
       const d = hav(a, b) * 1.35;
       return { min: d / 65 * 60, km: d, geom: [a, b], est: true };
     }
   })();
   RC.set(key, p);
   const v = await p; if (v.est) RC.delete(key); // prøv igjen neste gang
+  if (v.none) return null;
   return v;
 }
 
@@ -195,11 +198,13 @@ async function computeDay(day, di = 0) {
   };
   const evalCrossing = async (c, pt) => {
     const L1 = await leg(prev, c.p1, { noFerry: true });
+    if (!L1) return null;
     const p1 = D.pause ? Math.floor(L1.min / PAUSE_ETTER) : 0;
     const atQuay = t + L1.min + p1 * PAUSE_MIN;
     const dep = await enturTrip(c.q1, c.q2, day.dato, atQuay + FERRY_CHECKIN);
     if (!dep || dep.start > atQuay + 6 * 60) return null;
     const L2 = await leg(c.p2, pt, { noFerry: true });
+    if (!L2) return null;
     const p2 = D.pause ? Math.floor(L2.min / PAUSE_ETTER) : 0;
     const cross = dep.end - dep.start, ckm = hav(c.p1, c.p2);
     const f = { navn: c.line, linje: dep.linje || c.line, min: Math.round(cross), km: Math.round(ckm), off: L1.min, fra: c.p1, til: c.p2, avgang: dep.start, vent: Math.max(0, dep.start - atQuay), fraKai: { id: c.q1.id, name: c.q1.n }, tilKai: { id: c.q2.id, name: c.q2.n }, via: true };
@@ -214,12 +219,12 @@ async function computeDay(day, di = 0) {
     alts.push(await evalOsrm(A));
     let roadKm = A.km;
     if (mode !== "auto" || (A.ferger && A.ferger.length) || A.km > 15) {
-      const R = await leg(prev, pt, { noFerry: true });
-      if (!(A.ferger && A.ferger.length) && Math.abs(R.min - A.min) < 1) { /* samme rute */ } else alts.push(await evalOsrm(R));
-      roadKm = R.km;
+      const R = (A.ferger && A.ferger.length) ? await leg(prev, pt, { noFerry: true }) : null;
+      if (R) { alts.push(await evalOsrm(R)); roadKm = R.km }
     }
     if (mode !== "vei") for (const c of ferryCandidates(prev, pt, roadKm)) { const x = await evalCrossing(c, pt).catch(() => null); if (x) alts.push(x) }
-    const best = k => alts.filter(a => !k || a.kind === k).sort((a, b) => a.total - b.total)[0];
+    const real = alts.filter(a => !a.est), pool = real.length ? real : alts;
+    const best = k => pool.filter(a => !k || a.kind === k).sort((a, b) => a.total - b.total)[0];
     const bv = best("vei"), bf = best("ferge");
     let L = mode === "vei" ? (bv || best()) : mode === "ferge" ? (bf || best()) : best();
     L = { ...L, alt: { vei: bv ? bv.total : null, ferge: bf ? bf.total : null, mode } };
