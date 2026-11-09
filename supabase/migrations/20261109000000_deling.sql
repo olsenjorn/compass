@@ -28,13 +28,13 @@ create policy "ruter: lese egne, delte eller som leder" on public.ruteplaner
                  and t.rolle in ('admin','leder'))
   );
 
--- Endre: eier eller den ruta er delt med
-drop policy if exists "ruter: endre egne" on public.ruteplaner;
+-- Endre: bare eieren. De ruta er delt med kan bare lese.
 drop policy if exists "ruter: endre egne eller delte" on public.ruteplaner;
-create policy "ruter: endre egne eller delte" on public.ruteplaner
+drop policy if exists "ruter: endre egne" on public.ruteplaner;
+create policy "ruter: endre egne" on public.ruteplaner
   for update to authenticated
-  using (laget_av = lower((select auth.jwt() ->> 'email')) or lower((select auth.jwt() ->> 'email')) = any (delt_med))
-  with check (laget_av = lower((select auth.jwt() ->> 'email')) or lower((select auth.jwt() ->> 'email')) = any (delt_med));
+  using (laget_av = lower((select auth.jwt() ->> 'email')))
+  with check (laget_av = lower((select auth.jwt() ->> 'email')));
 
 -- Eieren kan ikke endres av andre
 create or replace function public.ruteplaner_behold_eier() returns trigger

@@ -327,7 +327,7 @@ async function openPlan(id, dayIdx) {
   if (error || !data) { setStatus("Fant ikke ruten."); return }
   plan = { id: data.id, tittel: data.tittel, laget_av: data.laget_av, delt_med: data.delt_med || [], data: Object.assign({ besokMin: 60, pause: true, fergeVent: 30, dager: [] }, data.data || {}) };
   if (!plan.data.dager.length) plan.data.dager.push(newPlan().data.dager[0]);
-  readonly = plan.laget_av !== (me().epost || "") && !plan.delt_med.includes(me().epost || "");
+  readonly = plan.laget_av !== (me().epost || "");
   active = Math.min(Math.max(0, dayIdx || 0), plan.data.dager.length - 1); hotelMode = false; overview = false; wantFit = true; store.set("kk_plan", id);
   return recompute();
 }
@@ -370,7 +370,7 @@ function shareHtml() {
   const own = isOwner();
   return `<div class="sharebox"><b>Del ruta med</b>${own ? "" : `<div class="mut">Bare ${esc(kollNavn(plan.laget_av))} kan endre hvem ruta er delt med.</div>`}
     ${list.map(k => `<label class="chk"><input type="checkbox" data-share="${esc(k.epost)}" ${(plan.delt_med || []).includes(k.epost) ? "checked" : ""} ${own ? "" : "disabled"}> ${esc(k.navn)}</label>`).join("") || `<div class="mut">Ingen andre brukere.</div>`}
-    <div class="mut">De du deler med kan se og endre ruta, og den vises i kalenderen deres.</div></div>`;
+    <div class="mut">De du deler med kan lese ruta og laste ned PDF, og den vises i kalenderen deres. Bare du kan endre den.</div></div>`;
 }
 function addDeltaker(st, epost) {
   st.deltakere = [...new Set([...(st.deltakere || []), epost])];
@@ -715,10 +715,10 @@ function render() {
   const ro = readonly ? "disabled" : "";
   P.innerHTML = `
   <div class="plhead">
-    <div class="plrow"><select id="plPick" aria-label="Velg rute"></select><button type="button" class="btn" id="plNew">Ny rute</button><button type="button" class="btn" id="plIcs" title="Last ned som kalenderfil for Outlook">Til Outlook</button><button type="button" class="btn" id="plPdf" title="Last ned oppsummering som PDF">PDF</button>${plan.id ? `<button type="button" class="btn" id="plShare" aria-pressed="${shareOpen}">Del${(plan.delt_med || []).length ? ` (${plan.delt_med.length})` : ""}</button>` : ""}${isOwner() ? `<button type="button" class="btn danger" id="plDel" title="Slett hele ruta">${delPlanArm ? "Trykk igjen for å slette" : "Slett rute"}</button>` : ""}</div>
+    <div class="plrow"><select id="plPick" aria-label="Velg rute"></select><button type="button" class="btn" id="plNew">Ny rute</button><button type="button" class="btn" id="plIcs" title="Last ned som kalenderfil for Outlook">Til Outlook</button><button type="button" class="btn" id="plPdf" title="Last ned oppsummering som PDF">PDF</button>${plan.id && isOwner() ? `<button type="button" class="btn" id="plShare" aria-pressed="${shareOpen}">Del${(plan.delt_med || []).length ? ` (${plan.delt_med.length})` : ""}</button>` : ""}${isOwner() ? `<button type="button" class="btn danger" id="plDel" title="Slett hele ruta">${delPlanArm ? "Trykk igjen for å slette" : "Slett rute"}</button>` : ""}</div>
     ${shareHtml()}
     <div class="plrow"><input id="plTitle" class="pltitle" value="${esc(plan.tittel)}" aria-label="Navn på ruten" ${ro}></div>
-    ${readonly ? `<div class="box warn">Ruten er laget av ${esc(kollNavn(plan.laget_av))}. Du kan se den, men ikke endre den.</div>` : !isOwner() ? `<div class="box">Ruta er laget av ${esc(kollNavn(plan.laget_av))} og delt med deg. Du kan endre den.</div>` : ""}
+    ${readonly ? `<div class="box warn">Ruta er laget av ${esc(kollNavn(plan.laget_av))}${(plan.delt_med || []).includes(me().epost) ? " og delt med deg" : ""}. Du kan lese den, men bare ${esc(kollNavn(plan.laget_av))} kan endre den.</div>` : ""}
     <div class="plrow small">
       <label>Standard besøk <input type="number" id="plMin" min="5" step="5" value="${D.besokMin}" ${ro}> min</label>
       <label title="Planleggeren sammenligner kjøring rundt med kjøring via fergesamband (med ekte avganger fra Entur)">Ferge <select id="plFergeMode" ${ro}><option value="auto" ${(D.ferge || "auto") === "auto" ? "selected" : ""}>Velg raskeste</option><option value="vei" ${D.ferge === "vei" ? "selected" : ""}>Unngå ferge</option></select></label>
