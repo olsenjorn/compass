@@ -46,15 +46,15 @@ const addDays = (s, n) => { const d = new Date(s + "T12:00"); d.setDate(d.getDat
 /* ---------- kjøretid ---------- */
 const RC = new Map(); let lastOsrm = 0;
 function hav(a, b) { const R = 6371, t = x => x * Math.PI / 180, dl = t(b[0] - a[0]), dn = t(b[1] - a[1]); const h = Math.sin(dl / 2) ** 2 + Math.cos(t(a[0])) * Math.cos(t(b[0])) * Math.sin(dn / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)) }
-async function leg(a, b) {
-  const key = `${a[0].toFixed(4)},${a[1].toFixed(4)}>${b[0].toFixed(4)},${b[1].toFixed(4)}`;
+async function leg(a, b, opt = {}) {
+  const key = `${a[0].toFixed(4)},${a[1].toFixed(4)}>${b[0].toFixed(4)},${b[1].toFixed(4)}${opt.noFerry ? "|nf" : ""}`;
   if (RC.has(key)) return RC.get(key);
   const p = (async () => {
     if (hav(a, b) < 0.05) return { min: 0, km: 0, geom: [a, b], est: false };
     try {
       const wait = Math.max(0, lastOsrm + 350 - Date.now()); lastOsrm = Date.now() + wait;
       if (wait) await new Promise(r => setTimeout(r, wait));
-      const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${a[1]},${a[0]};${b[1]},${b[0]}?overview=simplified&geometries=geojson&steps=true`);
+      const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${a[1]},${a[0]};${b[1]},${b[0]}?overview=simplified&geometries=geojson&steps=true${opt.noFerry ? "&exclude=ferry" : ""}`);
       const j = await r.json();
       const rt = j && j.routes && j.routes[0];
       if (!rt) throw new Error("ingen rute");
@@ -138,6 +138,39 @@ function stopPt(st) {
   if (isAvt(st)) { const a = AVT[st.kat]; return a && a.avd ? avdPt(a.avd) : null }
   const c = kunde(st.k); return c && c.lat != null ? [c.lat, c.lon] : null;
 }
+/* ---------- ferge som alternativ: kjør til kai, ta fergen, kjør videre ---------- */
+let ferryPairs = null;
+function getFerryPairs() {
+  const Q = window.KKFerry && window.KKFerry.quays; if (!Q || !Q.length) return null;
+  if (ferryPairs && ferryPairs.n === Q.length) return ferryPairs.list;
+  const byLine = {};
+  Q.forEach(q => (q.l || []).forEach(l => (byLine[l] = byLine[l] || []).push(q)));
+  const list = [], seen = new Set();
+  Object.entries(byLine).forEach(([line, qs]) => qs.forEach(a => qs.forEach(b => {
+    if (a === b) return; const k = a.id + ">" + b.id; if (seen.has(k)) return; seen.add(k);
+    list.push({ line, q1: a, q2: b, p1: [a.a, a.o], p2: [b.a, b.o] });
+  })));
+  ferryPairs = { n: Q.length, list };
+  return list;
+}
+function ferryCandidates(a, b, roadKm) {
+  const P = getFerryPairs(); if (!P || roadKm < 15) return [];
+  return P.map(p => ({ ...p, s: hav(a, p.p1) + hav(p.p2, b) }))
+    .filter(p => p.s < roadKm * 0.75 && hav(a, p.p1) < roadKm && hav(p.p2, b) < roadKm)
+    .sort((x, y) => x.s - y.s).slice(0, 2);
+}
+async function enturTrip(q1, q2, dateStr, fromMin) {
+  const base = new Date(dateStr + "T00:00:00"), start = new Date(base.getTime() + Math.round(fromMin) * 60000);
+  const key = `t${q1.id}>${q2.id}|${Math.floor(start.getTime() / 300000)}`;
+  if (!EC.has(key)) EC.set(key, entur(`query($from:String!,$to:String!,$t:DateTime!){ trip(from:{place:$from}, to:{place:$to}, dateTime:$t, numTripPatterns:2, modes:{accessMode:foot, egressMode:foot, transportModes:[{transportMode:water}]}){ tripPatterns{ legs{ mode expectedStartTime expectedEndTime line{name} } } } }`, { from: q1.id, to: q2.id, t: start.toISOString() })
+    .then(d => {
+      const ws = (d.trip.tripPatterns || []).map(p => p.legs.filter(l => l.mode === "water")).filter(w => w.length === 1).map(w => w[0]);
+      ws.sort((x, y) => new Date(x.expectedEndTime) - new Date(y.expectedEndTime));
+      const w = ws[0]; if (!w) return null;
+      return { start: (new Date(w.expectedStartTime) - base) / 60000, end: (new Date(w.expectedEndTime) - base) / 60000, linje: w.line ? w.line.name : "" };
+    }).catch(() => { EC.delete(key); return null }));
+  return EC.get(key);
+}
 async function computeDay(day, di = 0) {
   await ensureHome(day);
   const D = plan.data, out = { items: [], driveMin: 0, km: 0, visits: 0, est: false, end: null, warn: [], ferger: [] };
@@ -146,13 +179,10 @@ async function computeDay(day, di = 0) {
   const s = day.start;
   out.items.push({ kind: "start", n: SYM[s.type] || "S", pt: s.lat != null ? [s.lat, s.lon] : null, t });
   let prev = out.items[0].pt, n = 0;
-  const legTo = async (pt) => {
-    if (!prev || !pt) return null;
-    const L = await leg(prev, pt);
+  // Vurderer kjøring (med OSRMs egne ferger), kun vei, og kjøring via fergesamband med ekte avganger. Velger raskest ankomst.
+  const evalOsrm = async (L, kind) => {
     const pauses = D.pause ? Math.floor(L.min / PAUSE_ETTER) : 0;
-    // Ferger: finn neste avgang i Entur ut fra når vi er på kaia; ellers fast ventetid
-    let extra = 0;
-    const ferger = [];
+    let extra = 0; const ferger = [];
     for (const f0 of (L.ferger || [])) {
       const f = { ...f0 };
       const atQuay = t + f.off + extra;
@@ -161,11 +191,41 @@ async function computeDay(day, di = 0) {
       else { f.vent = +D.fergeVent || 0; f.ukjent = true; }
       extra += f.vent; ferger.push(f);
     }
-    const fw = extra;
-    const total = L.min + pauses * PAUSE_MIN + fw;
-    if (ferger.length) out.ferger.push(...ferger);
-    out.driveMin += L.min; out.km += L.km; if (L.est) out.est = true;
-    return { ...L, ferger, pauses, total, fw };
+    return { ...L, ferger, pauses, fw: extra, total: L.min + pauses * PAUSE_MIN + extra, kind: ferger.length ? "ferge" : "vei", driveMin: L.min };
+  };
+  const evalCrossing = async (c, pt) => {
+    const L1 = await leg(prev, c.p1, { noFerry: true });
+    const p1 = D.pause ? Math.floor(L1.min / PAUSE_ETTER) : 0;
+    const atQuay = t + L1.min + p1 * PAUSE_MIN;
+    const dep = await enturTrip(c.q1, c.q2, day.dato, atQuay + FERRY_CHECKIN);
+    if (!dep || dep.start > atQuay + 6 * 60) return null;
+    const L2 = await leg(c.p2, pt, { noFerry: true });
+    const p2 = D.pause ? Math.floor(L2.min / PAUSE_ETTER) : 0;
+    const cross = dep.end - dep.start, ckm = hav(c.p1, c.p2);
+    const f = { navn: c.line, linje: dep.linje || c.line, min: Math.round(cross), km: Math.round(ckm), off: L1.min, fra: c.p1, til: c.p2, avgang: dep.start, vent: Math.max(0, dep.start - atQuay), fraKai: { id: c.q1.id, name: c.q1.n }, tilKai: { id: c.q2.id, name: c.q2.n }, via: true };
+    return { min: L1.min + cross + L2.min, km: L1.km + ckm + L2.km, geom: [...L1.geom, ...L2.geom], est: L1.est || L2.est, ferger: [f], pauses: p1 + p2, fw: f.vent,
+      total: (dep.end - t) + L2.min + p2 * PAUSE_MIN, kind: "ferge", driveMin: L1.min + L2.min };
+  };
+  const legTo = async (pt, st) => {
+    if (!prev || !pt) return null;
+    const mode = (st && st.ferge) || D.ferge || "auto";
+    const alts = [];
+    const A = await leg(prev, pt);
+    alts.push(await evalOsrm(A));
+    let roadKm = A.km;
+    if (mode !== "auto" || (A.ferger && A.ferger.length) || A.km > 15) {
+      const R = await leg(prev, pt, { noFerry: true });
+      if (!(A.ferger && A.ferger.length) && Math.abs(R.min - A.min) < 1) { /* samme rute */ } else alts.push(await evalOsrm(R));
+      roadKm = R.km;
+    }
+    if (mode !== "vei") for (const c of ferryCandidates(prev, pt, roadKm)) { const x = await evalCrossing(c, pt).catch(() => null); if (x) alts.push(x) }
+    const best = k => alts.filter(a => !k || a.kind === k).sort((a, b) => a.total - b.total)[0];
+    const bv = best("vei"), bf = best("ferge");
+    let L = mode === "vei" ? (bv || best()) : mode === "ferge" ? (bf || best()) : best();
+    L = { ...L, alt: { vei: bv ? bv.total : null, ferge: bf ? bf.total : null, mode } };
+    if (L.ferger.length) out.ferger.push(...L.ferger);
+    out.driveMin += L.driveMin; out.km += L.km; if (L.est) out.est = true;
+    return L;
   };
   // Lunsj: automatisk mellom to stopp i tidsrommet 11–12.30, eller fast klokkeslett hvis satt. Kan slås av per dag.
   const lun = day.lunsj || {};
@@ -177,11 +237,15 @@ async function computeDay(day, di = 0) {
   for (const st of day.stopp) {
     const si = st._si; delete st._si;
     const avt = isAvt(st);
+    if (!avt && (st.status === "avlyst" || st.status === "utsatt")) {
+      out.items.push({ kind: "kunde", si, n: "–", st, c: kunde(st.k), pt: null, leg: null, arr: t, begin: t, end: t, wait: 0, late: 0, skip: true });
+      continue;
+    }
     const c = avt ? null : kunde(st.k);
     const pt = stopPt(st);
     // A: lunsj før vi kjører videre (vi er ferdig med forrige stopp innenfor vinduet)
     if (!lunchDone && si > 0 && t >= W0 - 15 && t <= W1) { const b = ceil15(Math.max(t, W0)); lunch(b, false); t = b + lMin }
-    const L = await legTo(pt);
+    const L = await legTo(pt, st);
     let base = L ? t + L.total : t;
     // B: lunsj underveis når kjøringen går gjennom lunsjvinduet
     if (!lunchDone && si > 0 && L && t < W0 - 15 && base > W0) { lunch(W0, true); base += lMin }
@@ -198,7 +262,7 @@ async function computeDay(day, di = 0) {
   if (!lunchDone && !lun.av && day.stopp.length > 1) out.warn.push(lKl != null ? `Fant ikke plass til lunsj kl. ${lun.kl}.` : "Fant ikke plass til lunsj mellom 11.00 og 12.30.");
   if (day.slutt) {
     const pt = day.slutt.lat != null ? [day.slutt.lat, day.slutt.lon] : null;
-    const L = await legTo(pt);
+    const L = await legTo(pt, day.slutt);
     t = L ? ceil15(t + L.total) : t;
     out.items.push({ kind: "slutt", n: SYM[day.slutt.type] || "H", pt, leg: L, arr: t });
   }
@@ -222,7 +286,7 @@ function summary() {
       start: st.t, slutt: Math.round(c.end), km: Math.round(c.km), kjoring: Math.round(c.driveMin), besok: c.visits,
       fra: d.start.type === "fly" ? `Fly ${d.start.flyplass || ""}`.trim() : d.start.type === "hotell" ? (d.start.navn || "Hotell") : "Hjemme",
       stopp: c.items.filter(x => x.kind !== "start").map(x => x.kind === "kunde"
-        ? { n: x.n, type: "kunde", k: x.st.k, status: x.st.status === "avtalt" ? "avtalt" : "planlagt", kontakt: x.st.kontakt || "", navn: x.c ? x.c.n : x.st.k, sted: x.c ? [x.c.adr, x.c.ps].filter(Boolean).join(", ") : "", fra: Math.round(x.begin), til: Math.round(x.end), ankomst: Math.round(x.arr), kjoring: x.leg ? Math.round(x.leg.total) : 0 }
+        ? { n: x.n, type: "kunde", k: x.st.k, status: x.st.status || "planlagt", skip: !!x.skip, kontakt: x.st.kontakt || "", navn: x.c ? x.c.n : x.st.k, sted: x.c ? [x.c.adr, x.c.ps].filter(Boolean).join(", ") : "", fra: Math.round(x.begin), til: Math.round(x.end), ankomst: Math.round(x.arr), kjoring: x.leg ? Math.round(x.leg.total) : 0 }
         : x.kind === "avtale"
         ? { n: x.n, type: "avtale", kat: x.st.kat, navn: avtNavn(x.st), sted: (AVT[x.st.kat] || {}).avd ? "Lindab " + AVT[x.st.kat].avd : "", fra: Math.round(x.begin), til: Math.round(x.end), ankomst: Math.round(x.arr), kjoring: x.leg ? Math.round(x.leg.total) : 0 }
         : x.kind === "lunsj"
@@ -286,6 +350,7 @@ function setEnd(slutt) {
   change();
 }
 let avtMode = false;
+const STATUS = [["planlagt", "Planlagt"], ["avtalt", "Avtalt"], ["utsatt", "Utsatt"], ["avlyst", "Avlyst"]];
 function acLabel(c) { return `${c.n} · ${c.ps || "uten sted"}${c.pro ? " (prospekt)" : ""} · ${c.k}` }
 function acOptions() { return KK().DATA.filter(c => c.lat != null || !c.pro).map(c => `<option value="${esc(acLabel(c))}"></option>`).join("") }
 // Setter et stopp inn på riktig plass ut fra klokkeslett (avtalt), ellers sist
@@ -613,6 +678,7 @@ function render() {
     ${readonly ? `<div class="box warn">Ruten er laget av ${esc(plan.laget_av)}. Du kan se den, men ikke endre den.</div>` : ""}
     <div class="plrow small">
       <label>Standard besøk <input type="number" id="plMin" min="5" step="5" value="${D.besokMin}" ${ro}> min</label>
+      <label title="Planleggeren sammenligner kjøring rundt med kjøring via fergesamband (med ekte avganger fra Entur)">Ferge <select id="plFergeMode" ${ro}><option value="auto" ${(D.ferge || "auto") === "auto" ? "selected" : ""}>Velg raskeste</option><option value="vei" ${D.ferge === "vei" ? "selected" : ""}>Unngå ferge</option></select></label>
       <label class="chk"><input type="checkbox" id="plPause" ${D.pause ? "checked" : ""} ${ro}> 30 min pause per 4 t kjøring</label>
       <label title="Brukes når ruteplanen for fergen ikke finnes">Ventetid ferge uten ruteplan <input type="number" id="plFerge" min="0" step="5" value="${+D.fergeVent || 0}" ${ro}> min</label>
     </div>
@@ -638,13 +704,19 @@ function startHtml(d, ro) {
     <input id="stNavn" class="grow" value="${esc(s.navn || "")}" placeholder="${s.type === "hjem" ? "Hjemmeadresse" : "Hotell eller adresse"}" ${ro}>
     <label>Avreise <input type="time" id="stKl" value="${esc(s.kl)}" ${ro}></label>`;
 }
-function legHtml(L) {
+function fergeValg(L, si, ro) {
+  const a = L && L.alt; if (!a || a.vei == null || a.ferge == null || ro) return "";
+  const diff = Math.round(a.vei - a.ferge), m = a.mode || "auto";
+  const b = (v, l) => `<button type="button" class="chip" data-fg="${si}" data-v="${v}" aria-pressed="${m === v}">${l}</button>`;
+  return `<div class="fgvalg"><span>${diff > 0 ? `Ferge sparer ${dur(diff)}` : diff < 0 ? `Kun vei er ${dur(-diff)} raskere` : "Like raskt"} · kun vei ${dur(a.vei)} · via ferge ${dur(a.ferge)}</span>${b("auto", "Raskeste")}${b("vei", "Kun vei")}${b("ferge", "Via ferge")}</div>`;
+}
+function legHtml(L, si, ro) {
   if (!L) return "";
   if (L.km < 0.2) return `<div class="leg">↓ Samme sted</div>`;
   const fer = (L.ferger || []).map(f => f.avgang != null
     ? `<div class="ferry">⛴ ${esc(f.navn)} · avgang <b>${hm(f.avgang)}</b>${f.vent > 0 ? ` (venter ${dur(f.vent)})` : ""} · overfart ${f.min} min</div>`
     : `<div class="ferry">⛴ ${esc(f.navn)} · overfart ${f.min} min + ${f.vent} min ventetid <span class="est">fant ikke ruteplan</span> · <a href="https://entur.no" target="_blank" rel="noopener">sjekk avganger</a></div>`).join("");
-  return `<div class="leg">↓ Kjøring ${dur(L.min)} · ${km(L.km)}${L.pauses ? ` · + ${L.pauses * PAUSE_MIN} min pause` : ""}${L.est ? ` <span class="est">anslått</span>` : ""}${fer}</div>`;
+  return `<div class="leg">↓ Kjøring ${dur(L.driveMin != null ? L.driveMin : L.min)} · ${km(L.km)}${L.pauses ? ` · + ${L.pauses * PAUSE_MIN} min pause` : ""}${L.est ? ` <span class="est">anslått</span>` : ""}${fer}${fergeValg(L, si, ro)}</div>`;
 }
 function dayHtml(d, c, ro) {
   const it = c ? c.items : null;
@@ -671,7 +743,7 @@ function dayHtml(d, c, ro) {
           </div></div></div>`;
         return;
       }
-      h += legHtml(x.leg);
+      h += legHtml(x.leg, x.si, ro);
       if (x.kind === "avtale") {
         const a = AVT[x.st.kat] || {};
         h += `<div class="step avt"><span class="pn avt">${esc(x.n)}</span><div class="sbody">
@@ -690,13 +762,20 @@ function dayHtml(d, c, ro) {
           </div></div></div>`;
         return;
       }
+      if (x.skip) {
+        h += `<div class="step skip"><span class="pn">–</span><div class="sbody">
+          <b>${esc(x.c ? x.c.n : x.st.k)}</b> <span class="stbadge ${esc(x.st.status)}">${x.st.status === "avlyst" ? "Avlyst" : "Utsatt"}</span>
+          <div class="mut">Regnes ikke med i ruta.${x.st.kontakt ? " Kontakt: " + esc(x.st.kontakt) : ""}</div>
+          <div class="plrow small"><label>Status <select data-i="${x.si}" data-f="status" ${ro}>${STATUS.map(([v, l]) => `<option value="${v}" ${x.st.status === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>${dayOpts(x.si)}${ctrls(x)}</div></div></div>`;
+        return;
+      }
       h += `<div class="step"><span class="pn">${x.n}</span><div class="sbody">
         <b>${esc(x.c ? x.c.n : x.st.k)}</b>
         <div class="mut">${esc(x.c ? [x.c.adr, x.c.ps].filter(Boolean).join(", ") : "")} · ankomst ${hm(x.arr)}${x.wait > 1 ? ` · venter ${dur(x.wait)}` : ""}${x.c ? ` · <a href="${mapsUrl(x.c)}" target="_blank" rel="noopener">Google Maps ↗</a>` : ""}</div>
         ${x.late ? `<div class="late">Rekker ikke avtalen kl. ${esc(x.st.avtalt)}: ${dur(x.late)} for sent.</div>` : ""}
-        <div class="when">Besøk <b>${hm(x.begin)}–${hm(x.end)}</b> <span class="stbadge ${x.st.status === "avtalt" ? "ok" : ""}">${x.st.status === "avtalt" ? "✓ Avtalt" : "Planlagt"}</span>${x.st.kontakt ? ` <span class="mut">· ${esc(x.st.kontakt)}</span>` : ""}</div>
+        <div class="when">Besøk <b>${hm(x.begin)}–${hm(x.end)}</b> <span class="stbadge ${esc(x.st.status || "planlagt")}">${x.st.status === "avtalt" ? "✓ Avtalt" : x.st.status === "utsatt" ? "Utsatt" : x.st.status === "avlyst" ? "Avlyst" : "Planlagt"}</span>${x.st.kontakt ? ` <span class="mut">· ${esc(x.st.kontakt)}</span>` : ""}</div>
         <div class="plrow small">
-          <label>Status <select data-i="${x.si}" data-f="status" ${ro}><option value="planlagt" ${x.st.status !== "avtalt" ? "selected" : ""}>Planlagt</option><option value="avtalt" ${x.st.status === "avtalt" ? "selected" : ""}>Avtalt</option></select></label>
+          <label>Status <select data-i="${x.si}" data-f="status" ${ro}>${STATUS.map(([v, l]) => `<option value="${v}" ${(x.st.status || "planlagt") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
           <input class="grow" data-i="${x.si}" data-f="kontakt" value="${esc(x.st.kontakt || "")}" placeholder="Kontaktperson som deltar" ${ro}>
         </div>
         <div class="plrow small">
@@ -707,7 +786,7 @@ function dayHtml(d, c, ro) {
     });
     const end = it.find(x => x.kind === "slutt");
     if (end) {
-      h += legHtml(end.leg);
+      h += legHtml(end.leg, "e", ro);
       h += `<div class="step end"><span class="pn end">${end.n}</span><div class="sbody"><b>${d.slutt.type === "hjem" ? "Hjem" : esc(d.slutt.navn)}</b><div class="mut">Ankomst ${hm(end.arr)}${d.slutt.adr ? " · " + esc(d.slutt.adr) : ""}</div>${ro ? "" : `<button type="button" class="linkbtn" id="dEndRm">Fjern</button>`}</div></div>`;
     }
     if (!ro) {
@@ -751,6 +830,8 @@ function bind() {
   if (readonly) { document.querySelectorAll("#planner [data-day]").forEach(b => b.onclick = () => { overview = false; active = +b.dataset.day; hotelMode = false; render(); drawPlan(); fitDay() }); return }
   $("plTitle").oninput = e => { plan.tittel = e.target.value; scheduleSave() };
   $("plMin").onchange = e => { D.besokMin = Math.max(5, +e.target.value || 60); scheduleSave() };
+  $("plFergeMode").onchange = e => { D.ferge = e.target.value; change() };
+  document.querySelectorAll("#planner [data-fg]").forEach(b => b.onclick = () => { const k = b.dataset.fg, tgt = k === "e" ? d.slutt : d.stopp[+k]; if (!tgt) return; tgt.ferge = b.dataset.v === "auto" ? undefined : b.dataset.v; change() });
   $("plPause").onchange = e => { D.pause = e.target.checked; change() };
   if ($("nearToggle")) $("nearToggle").onclick = () => { nearOpen = !nearOpen; store.set("kk_near", nearOpen); render(); drawNear() };
   if ($("nearAB")) $("nearAB").onchange = e => { nearAB = e.target.checked; store.set("kk_nearab", nearAB); render(); drawNear() };
@@ -865,6 +946,7 @@ function buildIcs() {
     s.stopp.forEach(x => {
       const arr = x.ankomst;
       if (x.kjoring > 0) ev(d.dato, arr - x.kjoring, arr, `Kjøring til ${x.navn}`, "", `${plan.tittel} · dag ${i + 1}`);
+      if (x.type === "kunde" && x.skip) return;
       if (x.type === "kunde") ev(d.dato, x.fra, x.til, `${x.status === "avtalt" ? "Kundemøte" : "Kundebesøk (ikke avtalt)"}: ${x.navn}`, x.sted, `Kundenr. ${x.k}${x.kontakt ? ` · Kontakt: ${x.kontakt}` : ""} · ${x.status === "avtalt" ? "Avtalt" : "Planlagt"} · ${plan.tittel} · dag ${i + 1}`);
       else if (x.type === "avtale") ev(d.dato, x.fra, x.til, x.navn, x.sted, `${plan.tittel} · dag ${i + 1}`);
       else if (x.type === "lunsj") ev(d.dato, x.fra, x.til, x.underveis ? "Lunsj (underveis)" : "Lunsj", "", `${plan.tittel} · dag ${i + 1}`);

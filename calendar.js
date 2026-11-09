@@ -44,7 +44,7 @@ function card(e) {
   return `<button type="button" class="ccard c${e.farge}${e.mine ? " mine" : ""}" data-id="${e.id}" data-day="${e.day}">
     <div class="cct"><b>${esc(e.tittel)}</b>${e.mine ? "" : `<span class="who">${esc(seller(e.av))}</span>`}</div>
     <div class="ccm">${e.start != null ? `${hm(e.start)}–${hm(e.slutt)}` : "Ikke beregnet"}${e.km != null ? ` · ${e.km} km` : ""} · dag ${e.day + 1}</div>
-    <ol>${kunder.slice(0, 8).map(x => `<li>${x.fra != null ? `<span class="t">${hm(x.fra)}</span>` : ""}${x.type === "avtale" ? "◆ " : ""}${esc(x.navn)}${x.status === "avtalt" ? " ✓" : ""}</li>`).join("")}${kunder.length > 8 ? `<li class="more">+${kunder.length - 8} til</li>` : ""}</ol>
+    <ol>${kunder.slice(0, 8).map(x => `<li>${x.fra != null ? `<span class="t">${hm(x.fra)}</span>` : ""}${x.type === "avtale" ? "◆ " : ""}${esc(x.navn)}${x.status === "avtalt" ? " ✓" : x.status === "avlyst" ? " (avlyst)" : x.status === "utsatt" ? " (utsatt)" : ""}</li>`).join("")}${kunder.length > 8 ? `<li class="more">+${kunder.length - 8} til</li>` : ""}</ol>
     ${e.hotell ? `<div class="cch">Hotell: ${esc(e.hotell)}</div>` : ""}
   </button>`;
 }
