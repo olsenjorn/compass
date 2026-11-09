@@ -22,6 +22,17 @@ const FLYPLASSER = [
 const DEFAULT_HOME = "Eidhaugsvingen 6, 9105 Kvaløya";
 const PAUSE_ETTER = 240, PAUSE_MIN = 30;           // 30 min pause per påbegynte 4 timer sammenhengende kjøring (4 t, 8 t …)
 const FLY_BUFFER = { leiebil: 20, taxi: 10 };
+/* Avtaler midt i dagen. Kontortid kjører til Lindab-avdelingen; de andre skjer der du er. */
+const AVT = {
+  teams: { l: "Teamsmøte", sym: "T", min: 30 },
+  privat: { l: "Privat avtale", sym: "P", min: 60 },
+  internt: { l: "Internt møte", sym: "I", min: 60 },
+  kontor_harstad: { l: "Kontortid Lindab Harstad", sym: "L", min: 120, avd: "Harstad" },
+  kontor_tromso: { l: "Kontortid Lindab Tromsø", sym: "L", min: 120, avd: "Tromsø" }
+};
+const LUNSJ_FRA = 11 * 60, LUNSJ_TIL = 12 * 60 + 30, LUNSJ_MIN = 30;
+const isAvt = st => st && st.type === "avtale";
+const avtNavn = st => (st.tittel && st.tittel.trim()) || (AVT[st.kat] || {}).l || "Avtale";
 
 /* ---------- tid ---------- */
 const ceil15 = v => Math.ceil(Math.round(v) / 15) * 15; // runder opp til nærmeste kvarter
@@ -118,6 +129,11 @@ async function ensureHome(day) {
   }
 }
 const SYM = { hjem: "⌂", hotell: "H", fly: "✈" };
+function avdPt(sted) { const a = (window.KKAvd || []).find(v => v.sted === sted); return a ? [a.lat, a.lon] : null }
+function stopPt(st) {
+  if (isAvt(st)) { const a = AVT[st.kat]; return a && a.avd ? avdPt(a.avd) : null }
+  const c = kunde(st.k); return c && c.lat != null ? [c.lat, c.lon] : null;
+}
 async function computeDay(day, di = 0) {
   await ensureHome(day);
   const D = plan.data, out = { items: [], driveMin: 0, km: 0, visits: 0, est: false, end: null, warn: [], ferger: [] };
@@ -147,20 +163,35 @@ async function computeDay(day, di = 0) {
     out.driveMin += L.min; out.km += L.km; if (L.est) out.est = true;
     return { ...L, ferger, pauses, total, fw };
   };
+  // Lunsj: automatisk mellom to stopp i tidsrommet 11–12.30, eller fast klokkeslett hvis satt. Kan slås av per dag.
+  const lun = day.lunsj || {};
+  const lMin = +lun.min || LUNSJ_MIN, lKl = toMin(lun.kl);
+  const W0 = lKl != null ? lKl : LUNSJ_FRA, W1 = lKl != null ? lKl : LUNSJ_TIL;
+  let lunchDone = !!lun.av;
+  const lunch = (begin, underveis) => { out.items.push({ kind: "lunsj", n: "L", begin, end: begin + lMin, underveis, fast: lKl != null }); lunchDone = true };
+  day.stopp.forEach((st, si) => st._si = si);
   for (const st of day.stopp) {
-    const c = kunde(st.k);
-    const pt = c && c.lat != null ? [c.lat, c.lon] : null;
+    const si = st._si; delete st._si;
+    const avt = isAvt(st);
+    const c = avt ? null : kunde(st.k);
+    const pt = stopPt(st);
+    // A: lunsj før vi kjører videre (vi er ferdig med forrige stopp innenfor vinduet)
+    if (!lunchDone && si > 0 && t >= W0 - 15 && t <= W1) { const b = ceil15(Math.max(t, W0)); lunch(b, false); t = b + lMin }
     const L = await legTo(pt);
-    const arr = L ? ceil15(t + L.total) : t;
+    let base = L ? t + L.total : t;
+    // B: lunsj underveis når kjøringen går gjennom lunsjvinduet
+    if (!lunchDone && si > 0 && L && t < W0 - 15 && base > W0) { lunch(W0, true); base += lMin }
+    const arr = L ? ceil15(base) : base;
     const want = toMin(st.avtalt);
     const begin = want != null && want > arr ? want : arr;
     const late = want != null && arr > want + 1 ? arr - want : 0;
-    const len = +st.min || D.besokMin || 60;
-    n++;
-    out.items.push({ kind: "kunde", n: `${di + 1}.${n}`, st, c, pt, leg: L, arr, begin, end: begin + len, wait: begin - arr, late });
-    out.visits++;
+    const len = +st.min || (avt ? (AVT[st.kat] || {}).min : D.besokMin) || 60;
+    let num;
+    if (avt) num = (AVT[st.kat] || {}).sym || "A"; else { n++; num = `${di + 1}.${n}`; out.visits++ }
+    out.items.push({ kind: avt ? "avtale" : "kunde", si, n: num, st, c, pt, leg: L, arr, begin, end: begin + len, wait: begin - arr, late });
     t = begin + len; if (pt) prev = pt;
   }
+  if (!lunchDone && !lun.av && day.stopp.length > 1) out.warn.push(lKl != null ? `Fant ikke plass til lunsj kl. ${lun.kl}.` : "Fant ikke plass til lunsj mellom 11.00 og 12.30.");
   if (day.slutt) {
     const pt = day.slutt.lat != null ? [day.slutt.lat, day.slutt.lon] : null;
     const L = await legTo(pt);
@@ -188,6 +219,10 @@ function summary() {
       fra: d.start.type === "fly" ? `Fly ${d.start.flyplass || ""}`.trim() : d.start.type === "hotell" ? (d.start.navn || "Hotell") : "Hjemme",
       stopp: c.items.filter(x => x.kind !== "start").map(x => x.kind === "kunde"
         ? { n: x.n, type: "kunde", k: x.st.k, navn: x.c ? x.c.n : x.st.k, sted: x.c ? [x.c.adr, x.c.ps].filter(Boolean).join(", ") : "", fra: Math.round(x.begin), til: Math.round(x.end), ankomst: Math.round(x.arr), kjoring: x.leg ? Math.round(x.leg.total) : 0 }
+        : x.kind === "avtale"
+        ? { n: x.n, type: "avtale", kat: x.st.kat, navn: avtNavn(x.st), sted: (AVT[x.st.kat] || {}).avd ? "Lindab " + AVT[x.st.kat].avd : "", fra: Math.round(x.begin), til: Math.round(x.end), ankomst: Math.round(x.arr), kjoring: x.leg ? Math.round(x.leg.total) : 0 }
+        : x.kind === "lunsj"
+        ? { n: x.n, type: "lunsj", navn: "Lunsj", fra: Math.round(x.begin), til: Math.round(x.end), ankomst: Math.round(x.begin), kjoring: 0, underveis: !!x.underveis }
         : { n: x.n, type: d.slutt.type, navn: d.slutt.type === "hjem" ? "Hjem" : d.slutt.navn, sted: d.slutt.adr || "", ankomst: Math.round(x.arr), kjoring: x.leg ? Math.round(x.leg.total) : 0 })
     };
   });
@@ -245,6 +280,14 @@ function setEnd(slutt) {
   const nx = plan.data.dager[active + 1];
   if (nx && slutt.type === "hotell" && nx.start.type === "hotell") Object.assign(nx.start, { navn: slutt.navn, lat: slutt.lat, lon: slutt.lon });
   change();
+}
+let avtMode = false;
+// Setter et stopp inn på riktig plass ut fra klokkeslett (avtalt), ellers sist
+function insertByTime(dd, di, st) {
+  const kl = toMin(st.avtalt), c = computed[di];
+  let at = dd.stopp.length;
+  if (kl != null && c) { const hit = c.items.find(x => (x.kind === "kunde" || x.kind === "avtale") && x.begin >= kl); if (hit) at = hit.si }
+  dd.stopp.splice(Math.min(at, dd.stopp.length), 0, st);
 }
 function addDay() {
   const prev = plan.data.dager[plan.data.dager.length - 1];
@@ -332,7 +375,7 @@ function nearCustomers() {
 function addNear(k) {
   const c = kunde(k), d = day(); if (!c) return;
   const pt = [c.lat, c.lon], comp = computed[active];
-  const pts = d.stopp.map(x => { const cc = kunde(x.k); return cc ? [cc.lat, cc.lon] : null });
+  const pts = d.stopp.map(stopPt);
   const startPt = comp && comp.items[0].pt, endPt = d.slutt && d.slutt.lat != null ? [d.slutt.lat, d.slutt.lon] : null;
   let bestI = d.stopp.length, bestCost = Infinity;
   for (let i = 0; i <= d.stopp.length; i++) {
@@ -448,7 +491,7 @@ function drawPlan() {
       if (!it.pt) return;
       const bg = it.kind === "kunde" ? col : dark;
       const label = it.n;
-      const cls = it.kind === "start" ? "pn start" : it.kind === "slutt" ? "pn end" : "pn";
+      const cls = it.kind === "start" ? "pn start" : it.kind === "slutt" ? "pn end" : it.kind === "avtale" ? "pn avt" : "pn";
       L.marker(it.pt, { icon: L.divIcon({ className: "", html: `<div class="${cls}${overview ? " ov" : ""}" style="${overview ? `background:${bg};color:#fff` : ""}">${label}</div>`, iconSize: null, iconAnchor: [16, 14] }), zIndexOffset: 1000 + (act ? 100 : 0), interactive: false })
         .addTo(planLayer);
     });
@@ -552,17 +595,50 @@ function dayHtml(d, c, ro) {
     <div class="step start"><span class="pn start">${SYM[s.type] || "S"}</span><div class="sbody"><b>${s.type === "fly" ? "Fly" : s.type === "hotell" ? "Fra hotell" : "Hjemmefra"}</b><div class="mut">${startLbl}</div><div class="plrow wrap">${startHtml(d, ro)}</div></div></div>`;
   if (!it) h += `<div class="status">Regner ut kjøretider …</div>`;
   else {
-    it.filter(x => x.kind === "kunde").forEach((x, i) => {
+    const N = d.stopp.length;
+    const dayOpts = si => plan.data.dager.length > 1 ? `<label>Flytt til <select data-mvday="${si}" ${ro}><option value="">–</option>${plan.data.dager.map((dd, j) => j === active ? "" : `<option value="${j}">Dag ${j + 1} · ${esc(dato(dd.dato))}</option>`).join("")}</select></label>` : "";
+    const ctrls = (x) => ro ? "" : `<span class="mv"><button type="button" class="ib" data-mv="${x.si}" data-d="-1" aria-label="Flytt opp" ${x.si === 0 ? "disabled" : ""}>↑</button><button type="button" class="ib" data-mv="${x.si}" data-d="1" aria-label="Flytt ned" ${x.si === N - 1 ? "disabled" : ""}>↓</button><button type="button" class="ib" data-rm="${x.si}" aria-label="Fjern">×</button></span>`;
+    it.filter(x => x.kind === "kunde" || x.kind === "avtale" || x.kind === "lunsj").forEach(x => {
+      if (x.kind === "lunsj") {
+        const lu = d.lunsj || {};
+        h += `<div class="step lunsj"><span class="pn lun">🍽</span><div class="sbody">
+          <b>Lunsj</b>${x.underveis ? ` <span class="mut">underveis</span>` : ""}
+          <div class="when"><b>${hm(x.begin)}–${hm(x.end)}</b>${x.fast ? "" : ` <span class="mut">· lagt inn automatisk</span>`}</div>
+          <div class="plrow small">
+            <label>Varighet <input type="number" min="10" step="5" id="luMin" value="${+lu.min || LUNSJ_MIN}" ${ro}> min</label>
+            <label>Fast kl. <input type="time" id="luKl" value="${esc(lu.kl || "")}" ${ro}></label>
+            ${ro ? "" : `<span class="mv"><button type="button" class="ib" id="luRm" aria-label="Fjern lunsj" title="Fjern lunsj denne dagen">×</button></span>`}
+          </div></div></div>`;
+        return;
+      }
       h += legHtml(x.leg);
+      if (x.kind === "avtale") {
+        const a = AVT[x.st.kat] || {};
+        h += `<div class="step avt"><span class="pn avt">${esc(x.n)}</span><div class="sbody">
+          <b>${esc(avtNavn(x.st))}</b>
+          <div class="mut">${esc(a.l || "Avtale")}${a.avd ? ` · ankomst ${hm(x.arr)}` : ""}${x.wait > 1 ? ` · ledig ${dur(x.wait)} før` : ""}</div>
+          ${x.late ? `<div class="late">Rekker ikke kl. ${esc(x.st.avtalt)}: ${dur(x.late)} for sent.</div>` : ""}
+          <div class="when"><b>${hm(x.begin)}–${hm(x.end)}</b></div>
+          <div class="plrow small">
+            <select data-i="${x.si}" data-f="kat" ${ro}>${Object.entries(AVT).map(([k, v]) => `<option value="${k}" ${x.st.kat === k ? "selected" : ""}>${v.l}</option>`).join("")}</select>
+            <input class="grow" data-i="${x.si}" data-f="tittel" value="${esc(x.st.tittel || "")}" placeholder="Beskrivelse (valgfritt)" ${ro}>
+          </div>
+          <div class="plrow small">
+            <label>Varighet <input type="number" min="5" step="5" data-i="${x.si}" data-f="min" value="${esc(x.st.min)}" ${ro}> min</label>
+            <label>Kl. <input type="time" data-i="${x.si}" data-f="avtalt" value="${esc(x.st.avtalt || "")}" ${ro}></label>
+            ${dayOpts(x.si)}${ctrls(x)}
+          </div></div></div>`;
+        return;
+      }
       h += `<div class="step"><span class="pn">${x.n}</span><div class="sbody">
         <b>${esc(x.c ? x.c.n : x.st.k)}</b>
         <div class="mut">${esc(x.c ? x.c.ps : "")} · ankomst ${hm(x.arr)}${x.wait > 1 ? ` · venter ${dur(x.wait)}` : ""}</div>
         ${x.late ? `<div class="late">Rekker ikke avtalen kl. ${esc(x.st.avtalt)}: ${dur(x.late)} for sent.</div>` : ""}
         <div class="when">Besøk <b>${hm(x.begin)}–${hm(x.end)}</b></div>
         <div class="plrow small">
-          <label>Varighet <input type="number" min="5" step="5" data-i="${i}" data-f="min" value="${esc(x.st.min)}" ${ro}> min</label>
-          <label>Avtalt kl. <input type="time" data-i="${i}" data-f="avtalt" value="${esc(x.st.avtalt || "")}" ${ro}></label>
-          ${ro ? "" : `<span class="mv"><button type="button" class="ib" data-mv="${i}" data-d="-1" aria-label="Flytt opp" ${i === 0 ? "disabled" : ""}>↑</button><button type="button" class="ib" data-mv="${i}" data-d="1" aria-label="Flytt ned" ${i === d.stopp.length - 1 ? "disabled" : ""}>↓</button><button type="button" class="ib" data-rm="${i}" aria-label="Fjern fra ruten">×</button></span>`}
+          <label>Varighet <input type="number" min="5" step="5" data-i="${x.si}" data-f="min" value="${esc(x.st.min)}" ${ro}> min</label>
+          <label>Avtalt kl. <input type="time" data-i="${x.si}" data-f="avtalt" value="${esc(x.st.avtalt || "")}" ${ro}></label>
+          ${dayOpts(x.si)}${ctrls(x)}
         </div></div></div>`;
     });
     const end = it.find(x => x.kind === "slutt");
@@ -572,7 +648,22 @@ function dayHtml(d, c, ro) {
     }
     if (!ro) {
       h += !d.stopp.length && !hotelMode ? `<div class="hint">Klikk på kundene i kartet i den rekkefølgen du vil besøke dem.</div>` : "";
+      h += avtMode ? `<form class="avtform" id="avtForm">
+          <b>Ny avtale</b>
+          <div class="plrow small wrap">
+            <select id="avKat">${Object.entries(AVT).map(([k, v]) => `<option value="${k}">${v.l}</option>`).join("")}</select>
+            <input class="grow" id="avTit" placeholder="Beskrivelse (valgfritt)">
+          </div>
+          <div class="plrow small wrap">
+            <label>Kl. <input type="time" id="avKl"></label>
+            <label>Varighet <input type="number" id="avMin" min="5" step="5" value="${AVT.teams.min}"> min</label>
+          </div>
+          <div class="mut">Med klokkeslett havner avtalen på riktig plass i dagen. Uten havner den sist, og du flytter den med ↑ ↓.</div>
+          <div class="acts"><button class="btn pri" type="submit">Legg til</button><button class="btn" type="button" id="avCancel">Avbryt</button></div>
+        </form>` : "";
       h += `<div class="acts endacts">
+        <button type="button" class="btn" id="dAvt">+ Avtale</button>
+        ${d.lunsj && d.lunsj.av ? `<button type="button" class="btn" id="dLunsj">+ Lunsj</button>` : ""}
         <button type="button" class="btn ${hotelMode ? "pri" : ""}" id="dHotel">${d.slutt && d.slutt.type === "hotell" ? "Bytt hotell" : "Avslutt med hotell"}</button>
         <button type="button" class="btn" id="dHome">Kjør hjem</button></div>`;
       if (hotelMode) h += `<div class="hotels"><div id="plHotels">${hotelsHtml()}</div>
@@ -625,10 +716,33 @@ function bind() {
     if (d.start.type === "hjem") store.set("kk_home", { adresse: d.start.navn, lat: g.lat, lon: g.lon });
     change();
   };
-  document.querySelectorAll("#planner input[data-f]").forEach(inp => inp.onchange = () => {
+  document.querySelectorAll("#planner [data-f]").forEach(inp => inp.onchange = () => {
     const s = d.stopp[+inp.dataset.i]; if (!s) return;
-    s[inp.dataset.f] = inp.dataset.f === "min" ? Math.max(5, +inp.value || 60) : inp.value; change();
+    const f = inp.dataset.f;
+    if (f === "kat") { const old = AVT[s.kat]; s.kat = inp.value; if (!s.min || (old && +s.min === old.min)) s.min = AVT[s.kat].min }
+    else s[f] = f === "min" ? Math.max(5, +inp.value || 60) : inp.value;
+    change();
   });
+  document.querySelectorAll("#planner [data-mvday]").forEach(sel => sel.onchange = () => {
+    if (sel.value === "") return;
+    const j = +sel.value, s = d.stopp.splice(+sel.dataset.mvday, 1)[0], t = D.dager[j];
+    insertByTime(t, j, s);
+    flash(`${isAvt(s) ? avtNavn(s) : (kunde(s.k) || {}).n || "Besøket"} er flyttet til dag ${j + 1} (${dato(t.dato)}).`);
+    change();
+  });
+  if ($("luMin")) $("luMin").onchange = e => { d.lunsj = { ...(d.lunsj || {}), min: Math.max(10, +e.target.value || LUNSJ_MIN) }; change() };
+  if ($("luKl")) $("luKl").onchange = e => { d.lunsj = { ...(d.lunsj || {}), kl: e.target.value || "" }; change() };
+  if ($("luRm")) $("luRm").onclick = () => { d.lunsj = { ...(d.lunsj || {}), av: true }; flash("Lunsj er fjernet for denne dagen. Legg den inn igjen med «+ Lunsj»."); change() };
+  if ($("dLunsj")) $("dLunsj").onclick = () => { d.lunsj = { ...(d.lunsj || {}), av: false }; change() };
+  if ($("dAvt")) $("dAvt").onclick = () => { avtMode = !avtMode; render(); if (avtMode) $("avKat").focus() };
+  if ($("avCancel")) $("avCancel").onclick = () => { avtMode = false; render() };
+  if ($("avKat")) $("avKat").onchange = e => { $("avMin").value = AVT[e.target.value].min };
+  if ($("avtForm")) $("avtForm").onsubmit = e => {
+    e.preventDefault();
+    const st = { type: "avtale", kat: $("avKat").value, tittel: $("avTit").value.trim(), min: Math.max(5, +$("avMin").value || AVT[$("avKat").value].min), avtalt: $("avKl").value || "" };
+    insertByTime(d, active, st);
+    avtMode = false; flash(`${avtNavn(st)} er lagt inn.`); change();
+  };
   document.querySelectorAll("#planner [data-mv]").forEach(b => b.onclick = () => { const i = +b.dataset.mv, j = i + +b.dataset.d; [d.stopp[i], d.stopp[j]] = [d.stopp[j], d.stopp[i]]; change() });
   document.querySelectorAll("#planner [data-rm]").forEach(b => b.onclick = () => { d.stopp.splice(+b.dataset.rm, 1); change() });
   if ($("dHotel")) $("dHotel").onclick = () => hotelMode ? (hotelMode = false, clearHotels(), render()) : showHotels();
@@ -673,6 +787,8 @@ function buildIcs() {
       const arr = x.ankomst;
       if (x.kjoring > 0) ev(d.dato, arr - x.kjoring, arr, `Kjøring til ${x.navn}`, "", `${plan.tittel} · dag ${i + 1}`);
       if (x.type === "kunde") ev(d.dato, x.fra, x.til, `Kundebesøk: ${x.navn}`, x.sted, `Kundenr. ${x.k} · ${plan.tittel} · dag ${i + 1}`);
+      else if (x.type === "avtale") ev(d.dato, x.fra, x.til, x.navn, x.sted, `${plan.tittel} · dag ${i + 1}`);
+      else if (x.type === "lunsj") ev(d.dato, x.fra, x.til, x.underveis ? "Lunsj (underveis)" : "Lunsj", "", `${plan.tittel} · dag ${i + 1}`);
       else if (x.type === "hotell") ev(d.dato, arr, arr + 15, `Hotell: ${x.navn}`, x.sted, `Innsjekk · ${plan.tittel}`);
     });
   });

@@ -20,7 +20,7 @@ body{margin:0}
   --profil:#1d5aa8; --vent:#b8572a; --stack:#1b2620;
   --segA:#0d6b5c; --segB:#4f8a3a; --segC:#a8811d; --segD:#8a948f;
   --warn-bg:#fbf1dc; --warn-ink:#6f5210;
-  --pros-bv:#2f7d4f; --pros-tak:#8c2f6b; --kom-line:rgba(24,33,43,.45); --charge:#c08a12; --hotel:#7a3e9d; --late:#b3261e; --c0:#1d5aa8; --c1:#b8572a; --c2:#2f7d4f; --c3:#7a3e9d; --c4:#a8811d; --c5:#0f6e8c;
+  --avt:#6d4bb3; --pros-bv:#2f7d4f; --pros-tak:#8c2f6b; --kom-line:rgba(24,33,43,.45); --charge:#c08a12; --hotel:#7a3e9d; --late:#b3261e; --c0:#1d5aa8; --c1:#b8572a; --c2:#2f7d4f; --c3:#7a3e9d; --c4:#a8811d; --c5:#0f6e8c;
   --f-display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
   --f-body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
 }
@@ -31,7 +31,7 @@ body{margin:0}
   --accent:#7fb0ec; --accent-ink:#0b1a2c; --accent-soft:#1a2c44;
   --profil:#7fb0ec; --vent:#e48a5c; --stack:#e4ebe7;
   --segA:#4fbfa8; --segB:#8cc271; --segC:#d9b04b; --segD:#7f8b86;
-  --pros-bv:#7cc79a; --pros-tak:#e08cc3; --kom-line:rgba(227,233,239,.45); --charge:#e3b23c; --hotel:#c39be0; --late:#f2a49c; --c0:#7fb0ec; --c1:#e48a5c; --c2:#7cc79a; --c3:#c39be0; --c4:#d9b04b; --c5:#5fc1db; --warn-bg:#352a12; --warn-ink:#ecd193; color-scheme:dark}}
+  --avt:#a78bfa; --pros-bv:#7cc79a; --pros-tak:#e08cc3; --kom-line:rgba(227,233,239,.45); --charge:#e3b23c; --hotel:#c39be0; --late:#f2a49c; --c0:#7fb0ec; --c1:#e48a5c; --c2:#7cc79a; --c3:#c39be0; --c4:#d9b04b; --c5:#5fc1db; --warn-bg:#352a12; --warn-ink:#ecd193; color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#10151b; --panel:#161d25; --ink:#e3e9ef; --muted:#97a3b0; --line:#28323d;
   --sea:#0e141a; --land:#1b232c; --land-line:#3a4653;
@@ -39,7 +39,7 @@ body{margin:0}
   --accent:#7fb0ec; --accent-ink:#0b1a2c; --accent-soft:#1a2c44;
   --profil:#7fb0ec; --vent:#e48a5c; --stack:#e4ebe7;
   --segA:#4fbfa8; --segB:#8cc271; --segC:#d9b04b; --segD:#7f8b86;
-  --pros-bv:#7cc79a; --pros-tak:#e08cc3; --kom-line:rgba(227,233,239,.45); --charge:#e3b23c; --hotel:#c39be0; --late:#f2a49c; --c0:#7fb0ec; --c1:#e48a5c; --c2:#7cc79a; --c3:#c39be0; --c4:#d9b04b; --c5:#5fc1db; --warn-bg:#352a12; --warn-ink:#ecd193; color-scheme:dark}
+  --avt:#a78bfa; --pros-bv:#7cc79a; --pros-tak:#e08cc3; --kom-line:rgba(227,233,239,.45); --charge:#e3b23c; --hotel:#c39be0; --late:#f2a49c; --c0:#7fb0ec; --c1:#e48a5c; --c2:#7cc79a; --c3:#c39be0; --c4:#d9b04b; --c5:#5fc1db; --warn-bg:#352a12; --warn-ink:#ecd193; color-scheme:dark}
 [hidden]{display:none!important}
 html,body{height:100%}
 body{background:var(--bg);color:var(--ink);font:15px/1.45 var(--f-body);display:flex;flex-direction:column;overflow:hidden}
@@ -303,6 +303,12 @@ body.planning .legend{display:none}
 .daylegend .lgnote{font-size:12px;color:var(--muted);margin-top:4px;display:flex;gap:8px;align-items:center}
 .daylegend .lgnote .dk{width:22px;height:6px;border-radius:3px;background:linear-gradient(90deg,#123a6d 30%,#1d5aa8 30%)}
 .pn.ov{border-color:#fff}
+.pn.avt{background:var(--avt);color:#fff}
+.pn.lun{background:var(--panel);color:var(--ink);border-color:var(--line);font-size:14px}
+.step.avt .sbody{border-left:3px solid var(--avt);padding-left:8px}
+.step.lunsj .sbody{border-left:3px dashed var(--line);padding-left:8px}
+.avtform{display:flex;flex-direction:column;gap:8px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--accent-soft);margin:6px 0}
+.plrow.small select{max-width:100%}
 .pltabs .chip .dot{width:9px;height:9px;border-radius:50%}
 .ovbtn[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--panel)}
 
@@ -597,13 +603,13 @@ body.planning .legend{display:none}
 </div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=20261108g"></script>
-<script src="app.js?v=20261108g"></script>
-<script src="adresser.js?v=20261108g"></script>
-<script src="planner.js?v=20261108g"></script>
-<script src="calendar.js?v=20261108g"></script>
-<script src="ferger.js?v=20261108g"></script>
-<script src="avdelinger.js?v=20261108g"></script>
-<script src="lunsj.js?v=20261108g"></script>
+<script src="config.js?v=20261109a"></script>
+<script src="app.js?v=20261109a"></script>
+<script src="adresser.js?v=20261109a"></script>
+<script src="planner.js?v=20261109a"></script>
+<script src="calendar.js?v=20261109a"></script>
+<script src="ferger.js?v=20261109a"></script>
+<script src="avdelinger.js?v=20261109a"></script>
+<script src="lunsj.js?v=20261109a"></script>
 </body>
 </html>
