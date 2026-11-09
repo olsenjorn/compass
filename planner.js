@@ -355,7 +355,22 @@ function setEnd(slutt) {
   if (nx && slutt.type === "hotell" && nx.start.type === "hotell") Object.assign(nx.start, { navn: slutt.navn, lat: slutt.lat, lon: slutt.lon });
   change();
 }
-let avtMode = false;
+let avtMode = false, delPlanArm = false;
+async function deletePlan() {
+  clearTimeout(saveT); saveT = null;
+  const tittel = plan.tittel || "Ruta";
+  if (plan.id) {
+    const { error } = await KK().sb.from("ruteplaner").delete().eq("id", plan.id);
+    if (error) { flash("Kunne ikke slette: " + error.message); return }
+  }
+  try { localStorage.removeItem("kk_plan") } catch (e) { }
+  await loadList(true);
+  const next = plans.find(p => p.laget_av === me().epost);
+  if (next) await openPlan(next.id);
+  else { plan = newPlan(); plan.laget_av = me().epost; readonly = false; active = 0; computed = []; recompute() }
+  if (window.KKCal && window.KKCal.load) window.KKCal.load();
+  flash(`«${tittel}» er slettet.`);
+}
 const STATUS = [["planlagt", "Planlagt"], ["avtalt", "Avtalt"], ["utsatt", "Utsatt"], ["avlyst", "Avlyst"]];
 function acLabel(c) { return `${c.n} · ${c.ps || "uten sted"}${c.pro ? " (prospekt)" : ""} · ${c.k}` }
 function acOptions() { return KK().DATA.filter(c => c.lat != null || !c.pro).map(c => `<option value="${esc(acLabel(c))}"></option>`).join("") }
@@ -679,7 +694,7 @@ function render() {
   const ro = readonly ? "disabled" : "";
   P.innerHTML = `
   <div class="plhead">
-    <div class="plrow"><select id="plPick" aria-label="Velg rute"></select><button type="button" class="btn" id="plNew">Ny rute</button><button type="button" class="btn" id="plIcs" title="Last ned som kalenderfil for Outlook">Til Outlook</button></div>
+    <div class="plrow"><select id="plPick" aria-label="Velg rute"></select><button type="button" class="btn" id="plNew">Ny rute</button><button type="button" class="btn" id="plIcs" title="Last ned som kalenderfil for Outlook">Til Outlook</button>${readonly ? "" : `<button type="button" class="btn danger" id="plDel" title="Slett hele ruta">${delPlanArm ? "Trykk igjen for å slette" : "Slett rute"}</button>`}</div>
     <div class="plrow"><input id="plTitle" class="pltitle" value="${esc(plan.tittel)}" aria-label="Navn på ruten" ${ro}></div>
     ${readonly ? `<div class="box warn">Ruten er laget av ${esc(plan.laget_av)}. Du kan se den, men ikke endre den.</div>` : ""}
     <div class="plrow small">
@@ -835,6 +850,10 @@ function bind() {
   const D = plan.data, d = D.dager[active];
   $("plPick").onchange = e => { if (e.target.value) openPlan(e.target.value) };
   $("plIcs").onclick = exportIcs;
+  if ($("plDel")) $("plDel").onclick = () => {
+    if (!delPlanArm) { delPlanArm = true; render(); clearTimeout(deletePlan.t); deletePlan.t = setTimeout(() => { delPlanArm = false; render() }, 4000); return }
+    delPlanArm = false; clearTimeout(deletePlan.t); deletePlan();
+  };
   $("plOverview").onclick = () => { overview = !overview; hotelMode = false; clearHotels(); render(); drawPlan(); fitDay() };
   $("plNew").onclick = () => { plan = newPlan(); plan.laget_av = me().epost; readonly = false; active = 0; computed = []; recompute(); };
   if (readonly) { document.querySelectorAll("#planner [data-day]").forEach(b => b.onclick = () => { overview = false; active = +b.dataset.day; hotelMode = false; render(); drawPlan(); fitDay() }); return }
