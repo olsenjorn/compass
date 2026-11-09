@@ -4,7 +4,7 @@
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const ENTUR = "https://api.entur.io/journey-planner/v3/graphql";
-const CACHE = "kk_fergeleier_v1", TTL = 7 * 864e5, ON = "kk_ferger_on";
+const CACHE = "kk_fergeleier_v2", TTL = 7 * 864e5, ON = "kk_ferger_on";
 const store = { get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v) } catch (e) { return d } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)) } catch (e) { } } };
 async function entur(query, variables) {
   const r = await fetch(ENTUR, { method: "POST", headers: { "Content-Type": "application/json", "ET-Client-Name": "lindab-kundekartnord" }, body: JSON.stringify({ query, variables }) });
@@ -29,6 +29,27 @@ async function loadQuays() {
       if (!o.l.includes(l.name)) o.l.push(l.name);
     }));
   const list = Object.values(sp);
+  // Kaier som finnes i Entur, men mangler i rutemønstrene (f.eks. Skutvik): legg til og finn linjer ut fra avganger
+  try {
+    const hv = (a, b, c, d) => { const R = 6371, t = x => x * Math.PI / 180, dl = t(c - a), dn = t(d - b); const h = Math.sin(dl / 2) ** 2 + Math.cos(t(a)) * Math.cos(t(c)) * Math.sin(dn / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)) };
+    const bb = await entur(`{ stopPlacesByBbox(minimumLatitude:64.9, maximumLatitude:71.4, minimumLongitude:10.5, maximumLongitude:31.5){ id name latitude longitude transportMode } }`);
+    const extra = bb.stopPlacesByBbox.filter(x => (x.transportMode || []).includes("water") && /ferjekai|fergekai|ferjeleie|fergeleie/i.test(x.name) && !/kystrutekai/i.test(x.name))
+      .filter(x => !list.some(q => hv(q.a, q.o, x.latitude, x.longitude) < 1.5));
+    const seen = [];
+    for (const x of extra) {
+      if (seen.some(q => hv(q.a, q.o, x.latitude, x.longitude) < 1.5)) continue;
+      const q = { id: x.id, n: kai(x.name), a: x.latitude, o: x.longitude, l: [], ekstra: true };
+      try {
+        const d = await entur(`query($id:String!){ stopPlace(id:$id){ estimatedCalls(timeRange:604800, numberOfDepartures:40, whiteListedModes:[water]){ serviceJourney{ line{ name transportSubmode } } } } }`, { id: x.id });
+        const ln = new Set(((d.stopPlace || {}).estimatedCalls || []).filter(c => /CarFerry/.test(c.serviceJourney.line.transportSubmode || "")).map(c => c.serviceJourney.line.name));
+        q.l = [...ln];
+      } catch (e) { }
+      // Navnet på linjen avslører ofte kaia (Svolvær - Skrova - Skutvik)
+      if (!q.l.length) list.forEach(o => o.l.forEach(l => { if (new RegExp("\\b" + q.n.split(" ")[0] + "\\b", "i").test(l) && !q.l.includes(l)) q.l.push(l) }));
+      seen.push(q);
+    }
+    list.push(...seen);
+  } catch (e) { /* ekstra kaier er ikke kritisk */ }
   if (list.length) store.set(CACHE, { ts: Date.now(), list });
   return list;
 }
