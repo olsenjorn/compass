@@ -22,6 +22,7 @@ const FLYPLASSER = [
 const DEFAULT_HOME = "Eidhaugsvingen 6, 9105 Kvaløya";
 const PAUSE_ETTER = 240, PAUSE_MIN = 30;           // 30 min pause per påbegynte 4 timer sammenhengende kjøring (4 t, 8 t …)
 const FLY_BUFFER = { leiebil: 20, taxi: 10 };
+const FLY_RETUR = { leiebil: 60, taxi: 45 }; // være på flyplassen så lenge før avgang (levere leiebil / innsjekk)
 /* Avtaler midt i dagen. Kontortid kjører til Lindab-avdelingen; de andre skjer der du er. */
 const AVT = {
   teams: { l: "Teamsmøte", sym: "T", min: 30 },
@@ -294,7 +295,12 @@ async function computeDay(day, di = 0, hint = {}) {
     const pt = day.slutt.lat != null ? [day.slutt.lat, day.slutt.lon] : null;
     const L = await legTo(pt, day.slutt);
     t = L ? ceil15(t + L.total) : t;
-    out.items.push({ kind: "slutt", n: SYM[day.slutt.type] || "H", pt, leg: L, arr: t });
+    const it = { kind: "slutt", n: SYM[day.slutt.type] || "H", pt, leg: L, arr: t };
+    if (day.slutt.type === "fly") {
+      const dep = toMin(day.slutt.avgang), buf = FLY_RETUR[day.slutt.transport || "leiebil"] || 45;
+      if (dep != null) { it.senest = dep - buf; it.margin = it.senest - t; if (it.margin < 0) out.warn.push(`Rekker ikke flyet kl. ${day.slutt.avgang} fra ${day.slutt.navn}: ${dur(-it.margin)} for sent (må være på flyplassen senest ${hm(it.senest)}).`) }
+    }
+    out.items.push(it);
   }
   out.end = t;
   if (out.end > 22 * 60) out.warn.push("Dagen slutter etter kl. 22.");
@@ -321,7 +327,7 @@ function summary() {
         ? { n: x.n, type: "avtale", kat: x.st.kat, navn: avtNavn(x.st) + (x.st.virtuell ? ` (med ${kollNavn(x.st.med)})` : ""), sted: (AVT[x.st.kat] || {}).avd ? "Lindab " + AVT[x.st.kat].avd : (x.st.adr || x.st.sted || ""), fra: Math.round(x.begin), til: Math.round(x.end), ankomst: Math.round(x.arr), kjoring: x.leg ? Math.round(x.leg.total) : 0 }
         : x.kind === "lunsj"
         ? { n: x.n, type: "lunsj", navn: "Lunsj", fra: Math.round(x.begin), til: Math.round(x.end), ankomst: Math.round(x.begin), kjoring: 0, underveis: !!x.underveis }
-        : { n: x.n, type: d.slutt.type, navn: d.slutt.type === "hjem" ? "Hjem" : d.slutt.navn, sted: d.slutt.adr || "", ankomst: Math.round(x.arr), kjoring: x.leg ? Math.round(x.leg.total) : 0 })
+        : { n: x.n, type: d.slutt.type, navn: d.slutt.type === "hjem" ? "Hjem" : d.slutt.type === "fly" ? `Fly fra ${d.slutt.navn}${d.slutt.avgang ? " kl. " + d.slutt.avgang : ""}` : d.slutt.navn, sted: d.slutt.adr || "", ankomst: Math.round(x.arr), kjoring: x.leg ? Math.round(x.leg.total) : 0 })
     };
   });
 }
@@ -381,7 +387,7 @@ function setEnd(slutt) {
   if (nx && slutt.type === "hotell" && nx.start.type === "hotell") Object.assign(nx.start, { navn: slutt.navn, lat: slutt.lat, lon: slutt.lon });
   change();
 }
-let avtMode = false, delPlanArm = false, shareOpen = false, KOLL = null;
+let avtMode = false, delPlanArm = false, shareOpen = false, KOLL = null, flyMode = false;
 function noteField(st, ro) {
   if (!window.KKInv || !st.uid) return "";
   const deltar = (st.deltakere || []).includes(me().epost);
@@ -880,7 +886,11 @@ function dayHtml(d, c, ro) {
     const end = it.find(x => x.kind === "slutt");
     if (end) {
       h += legHtml(end.leg, "e", ro);
-      h += `<div class="step end"><span class="pn end">${end.n}</span><div class="sbody"><b>${d.slutt.type === "hjem" ? "Hjem" : esc(d.slutt.navn)}</b><div class="mut">Ankomst ${hm(end.arr)}${d.slutt.adr ? " · " + esc(d.slutt.adr) : ""}</div>${ro ? "" : `<button type="button" class="linkbtn" id="dEndRm">Fjern</button>`}</div></div>`;
+      h += `<div class="step end"><span class="pn end">${end.n}</span><div class="sbody"><b>${d.slutt.type === "hjem" ? "Hjem" : esc(d.slutt.navn)}</b><div class="mut">Ankomst ${hm(end.arr)}${d.slutt.adr ? " · " + esc(d.slutt.adr) : ""}${end.senest != null ? ` · må være der senest ${hm(end.senest)}` : ""}</div>
+        ${d.slutt.type === "fly" ? `${end.margin != null ? (end.margin < 0 ? `<div class="late">Rekker ikke flyet: ${dur(-end.margin)} for sent.</div>` : `<div class="mut">Margin ${dur(end.margin)} før flyet går.</div>`) : ""}
+        <div class="plrow small wrap"><label>Flyet går kl. <input type="time" id="flyKl" value="${esc(d.slutt.avgang || "")}" ${ro}></label>
+          <label>Til flyplassen <select id="flyTr" ${ro}><option value="leiebil" ${(d.slutt.transport || "leiebil") === "leiebil" ? "selected" : ""}>Levere leiebil (60 min før)</option><option value="taxi" ${d.slutt.transport === "taxi" ? "selected" : ""}>Taxi / blir satt av (45 min før)</option></select></label></div>` : ""}
+        ${ro ? "" : `<button type="button" class="linkbtn" id="dEndRm">Fjern</button>`}</div></div>`;
     }
     if (!ro) {
       h += !d.stopp.length && !hotelMode ? `<div class="hint">Klikk på kundene i kartet i den rekkefølgen du vil besøke dem.</div>` : "";
@@ -903,11 +913,14 @@ function dayHtml(d, c, ro) {
         </form>` : "";
       h += `<form class="addcust" id="acForm" autocomplete="off"><label class="f">Legg til kunde i dagen<input id="acQ" list="acList" placeholder="Skriv kundenavn eller sted …"></label><button class="btn" type="submit">Legg til</button></form>
         <datalist id="acList">${acOptions()}</datalist>`;
+      const endPt = (() => { const cc = computed[active]; const l = cc && [...cc.items].reverse().find(i => i.pt && i.kind !== "slutt"); return l ? l.pt : null })();
       h += `<div class="acts endacts">
         <button type="button" class="btn" id="dAvt">+ Avtale</button>
         ${d.lunsj && d.lunsj.av ? `<button type="button" class="btn" id="dLunsj">+ Lunsj</button>` : ""}
         <button type="button" class="btn ${hotelMode ? "pri" : ""}" id="dHotel">${d.slutt && d.slutt.type === "hotell" ? "Bytt hotell" : "Avslutt med hotell"}</button>
-        <button type="button" class="btn" id="dHome">Kjør hjem</button></div>`;
+        <button type="button" class="btn ${flyMode ? "pri" : ""}" id="dFly">${d.slutt && d.slutt.type === "fly" ? "Bytt flyplass" : "Avslutt på flyplass"}</button>
+        <button type="button" class="btn" id="dHome">Kjør hjem</button></div>
+        ${flyMode ? `<div class="hotels"><div class="status">Velg flyplassen reisen avsluttes på. Flytid og transport setter du etterpå.</div><div class="hlist">${FLYPLASSER.map(f => `<button type="button" class="hrow" data-fly="${esc(f[0])}"><b>${esc(f[1])}</b><span>${esc(f[0])}${endPt ? ` · ${hav(endPt, [f[2], f[3]]).toFixed(0)} km` : ""}</span></button>`).join("")}</div></div>` : ""}`;
       if (hotelMode) h += `<div class="hotels"><label class="f">Søk hotell<input id="hQ" value="${esc(hotelQ)}" placeholder="F.eks. Scandic, Thon, Svolvær …" autocomplete="off"></label><div id="plHotels">${hotelsHtml()}</div>
         <button type="button" class="linkbtn" id="hAgain" title="Henter ferske data fra OpenStreetMap (tar opptil 1 minutt)">Hent ferskt hotellregister</button>
         <form id="hForm" class="fixrow"><label class="f">Eller skriv adressen<input id="hAdr" placeholder="Torget 1, 8300 Svolvær"></label><button class="btn" type="submit">Bruk</button></form>
@@ -1022,6 +1035,10 @@ function bind() {
   document.querySelectorAll("#planner [data-mv]").forEach(b => b.onclick = () => { const i = +b.dataset.mv, j = i + +b.dataset.d; [d.stopp[i], d.stopp[j]] = [d.stopp[j], d.stopp[i]]; change() });
   document.querySelectorAll("#planner [data-rm]").forEach(b => b.onclick = () => { d.stopp.splice(+b.dataset.rm, 1); change() });
   if ($("dHotel")) $("dHotel").onclick = () => hotelMode ? (hotelMode = false, clearHotels(), render()) : showHotels();
+  if ($("dFly")) $("dFly").onclick = () => { flyMode = !flyMode; hotelMode = false; clearHotels(); render() };
+  document.querySelectorAll("#planner [data-fly]").forEach(b => b.onclick = () => { const f = FLYPLASSER.find(x => x[0] === b.dataset.fly); if (!f) return; flyMode = false; setEnd({ type: "fly", navn: f[1], kode: f[0], lat: f[2], lon: f[3], avgang: (d.slutt && d.slutt.avgang) || "", transport: (d.slutt && d.slutt.transport) || "leiebil" }) });
+  if ($("flyKl")) $("flyKl").onchange = e => { d.slutt.avgang = e.target.value; change() };
+  if ($("flyTr")) $("flyTr").onchange = e => { d.slutt.transport = e.target.value; change() };
   if ($("dHome")) $("dHome").onclick = () => { const home = store.get("kk_home", { adresse: DEFAULT_HOME }); setEnd({ type: "hjem", navn: home.adresse, lat: home.lat, lon: home.lon }) };
   if ($("dEndRm")) $("dEndRm").onclick = () => { const was = d.slutt; d.slutt = null; hotelMode = false; clearHotels(); flash(was && was.type === "hotell" ? `${was.navn || "Hotellet"} er fjernet fra dagen.` : "Slutten av dagen er fjernet."); change() };
   bindHotelRows();
@@ -1067,6 +1084,7 @@ function buildIcs() {
       if (x.type === "kunde") ev(d.dato, x.fra, x.til, `${x.status === "avtalt" ? "Kundemøte" : "Kundebesøk (ikke avtalt)"}: ${x.navn}`, x.sted, `Kundenr. ${x.k}${x.kontakt ? ` · Kontakt: ${x.kontakt}` : ""}${x.deltakere && x.deltakere.length ? ` · Fra Lindab: ${x.deltakere.join(", ")}` : ""} · ${x.status === "avtalt" ? "Avtalt" : "Planlagt"} · ${plan.tittel} · dag ${i + 1}`);
       else if (x.type === "avtale") ev(d.dato, x.fra, x.til, x.navn, x.sted, `${plan.tittel} · dag ${i + 1}`);
       else if (x.type === "lunsj") ev(d.dato, x.fra, x.til, x.underveis ? "Lunsj (underveis)" : "Lunsj", "", `${plan.tittel} · dag ${i + 1}`);
+      else if (x.type === "fly" && d.slutt && toMin(d.slutt.avgang) != null) ev(d.dato, toMin(d.slutt.avgang), toMin(d.slutt.avgang) + 60, `Fly fra ${d.slutt.navn}`, d.slutt.navn, `${plan.tittel} · dag ${i + 1}`);
       else if (x.type === "hotell") ev(d.dato, arr, arr + 15, `Hotell: ${x.navn}`, x.sted, `Innsjekk · ${plan.tittel}`);
     });
   });
@@ -1131,7 +1149,7 @@ async function exportPdf() {
       } else if (x.kind === "lunsj") {
         rows.push([`${hm(x.begin)}–${hm(x.end)}`, x.underveis ? "Lunsj (underveis)" : "Lunsj", "", "", ""]);
       } else if (x.kind === "slutt") {
-        rows.push([`ank. ${hm(x.arr)}`, d.slutt.type === "hjem" ? "Hjem" : (d.slutt.navn || "Hotell"), d.slutt.adr || "", "", [drive, ferge].filter(Boolean).join("\n")]);
+        rows.push([`ank. ${hm(x.arr)}`, d.slutt.type === "hjem" ? "Hjem" : d.slutt.type === "fly" ? `Fly fra ${d.slutt.navn}${d.slutt.avgang ? "\nAvgang kl. " + d.slutt.avgang : ""}` : (d.slutt.navn || "Hotell"), d.slutt.adr || "", x.senest != null ? (x.margin < 0 ? `For sent (${dur(-x.margin)})` : `Senest ${hm(x.senest)}`) : "", [drive, ferge].filter(Boolean).join("\n")]);
       }
     });
     doc.autoTable({

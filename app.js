@@ -732,15 +732,18 @@ window.KK = {
 };
 /* ---------- toppmeny: faner og konto ---------- */
 function syncTabs() {
-  const cal = window.KKCal && window.KKCal.open, pl = window.KKPlan && window.KKPlan.open;
-  $("tKunder").setAttribute("aria-pressed", !cal && !pl);
-  $("tPlan").setAttribute("aria-pressed", !cal && !!pl);
+  const cal = window.KKCal && window.KKCal.open, pl = window.KKPlan && window.KKPlan.open, bk = window.KKBook && window.KKBook.open;
+  $("tKunder").setAttribute("aria-pressed", !cal && !pl && !bk);
+  $("tPlan").setAttribute("aria-pressed", !cal && !bk && !!pl);
   $("tCal").setAttribute("aria-pressed", !!cal);
+  $("tBook").setAttribute("aria-pressed", !!bk);
 }
 document.addEventListener("kk:view", syncTabs);
-$("tKunder").onclick = async () => { if (window.KKCal.open) window.KKCal.toggle(false); if (window.KKPlan.open) await window.KKPlan.toggle(false); syncTabs() };
-$("tPlan").onclick = async () => { if (window.KKCal.open) window.KKCal.toggle(false); if (!window.KKPlan.open) await window.KKPlan.toggle(true); syncTabs() };
-$("tCal").onclick = () => { if (!window.KKCal.open) window.KKCal.toggle(true); syncTabs() };
+const closeBook = () => { if (window.KKBook && window.KKBook.open) window.KKBook.toggle(false) };
+$("tBook").onclick = () => { if (window.KKCal.open) window.KKCal.toggle(false); if (!window.KKBook.open) window.KKBook.toggle(true); syncTabs() };
+$("tKunder").onclick = async () => { closeBook(); if (window.KKCal.open) window.KKCal.toggle(false); if (window.KKPlan.open) await window.KKPlan.toggle(false); syncTabs() };
+$("tPlan").onclick = async () => { closeBook(); if (window.KKCal.open) window.KKCal.toggle(false); if (!window.KKPlan.open) await window.KKPlan.toggle(true); syncTabs() };
+$("tCal").onclick = () => { closeBook(); if (!window.KKCal.open) window.KKCal.toggle(true); syncTabs() };
 const acctMenu = $("acctMenu"), acctBtn = $("acctBtn");
 const closeAcct = () => { acctMenu.hidden = true; acctBtn.setAttribute("aria-expanded", "false") };
 acctBtn.onclick = e => { e.stopPropagation(); const o = acctMenu.hidden; acctMenu.hidden = !o; acctBtn.setAttribute("aria-expanded", String(o)) };
