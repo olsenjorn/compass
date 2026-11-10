@@ -177,7 +177,7 @@ async function start() {
     ADR = {}; (a.data || []).forEach(x => ADR[x.kundenr] = x);
     INFO = {}; (inf.data || []).forEach(x => INFO[x.kundenr] = x);
     PROS = (pr && pr.data || []).map(fromProsp);
-    $("tAdr").hidden = !(ME.rolle === "admin" || ME.rolle === "leder");
+    $("tAdr").hidden = $("tKd").hidden = !(ME.rolle === "admin" || ME.rolle === "leder");
     $("lstatus").hidden = true;
     initMap();
     refreshData(true);
@@ -737,7 +737,15 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", reTheme);
 
 window.KK = {
   sb, get map() { return map }, get DATA() { return DATA }, get CHARGERS() { return CHARGERS }, pick: null,
-  select: (k) => select(k, false), closeDetail: () => closeDetail(), invalidate: () => map && map.invalidateSize(), get RAW() { return RAW }, get GEO() { return GEO }, get ADR() { return ADR }, get ME() { return ME },
+  select: (k) => select(k, false), closeDetail: () => closeDetail(), invalidate: () => map && map.invalidateSize(), get RAW() { return RAW }, get GEO() { return GEO }, get ADR() { return ADR }, get INFO() { return INFO }, get ME() { return ME },
+  async reloadKunder() {
+    const [k, a, inf] = await Promise.all([sb.from("kunder").select("*"), sb.from("kunde_adresse").select("*"), sb.from("kunde_info").select("*")]);
+    if (k.error) throw k.error;
+    RAW = k.data.map(fromDb);
+    ADR = {}; (a.data || []).forEach(x => ADR[x.kundenr] = x);
+    INFO = {}; (inf.data || []).forEach(x => INFO[x.kundenr] = x);
+    refreshData(false);
+  },
   setAdr(rows) { rows.forEach(x => ADR[x.kundenr] = x); refreshData(false) }
 };
 /* ---------- toppmeny: faner og konto ---------- */
