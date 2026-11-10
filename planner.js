@@ -29,10 +29,13 @@ const AVT = {
   internt: { l: "Internt møte", sym: "I", min: 60 },
   kontor_harstad: { l: "Kontortid Lindab Harstad", sym: "L", min: 120, avd: "Harstad" },
   kontor_tromso: { l: "Kontortid Lindab Tromsø", sym: "L", min: 120, avd: "Tromsø" },
-  sted: { l: "Stopp på sted (flyplass, adresse …)", sym: "S", min: 30, sted: true }
+  sted: { l: "Stopp på sted (flyplass, adresse …)", sym: "S", min: 30, sted: true },
+  invitasjon: { l: "Kundemøte med kollega", sym: "K", min: 60, sted: true, skjult: true }
 };
 const LUNSJ_FRA = 11 * 60, LUNSJ_TIL = 12 * 60 + 30, LUNSJ_MIN = 30;
 const isAvt = st => st && st.type === "avtale";
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36));
+const ensureUids = p => (p && p.data && p.data.dager || []).forEach(d => (d.stopp || []).forEach(st => { if (!st.uid) st.uid = uid() }));
 const avtNavn = st => (st.tittel && st.tittel.trim()) || st.sted || (AVT[st.kat] || {}).l || "Avtale";
 
 /* ---------- tid ---------- */
@@ -175,7 +178,7 @@ async function enturTrip(q1, q2, dateStr, fromMin) {
     }).catch(() => { EC.delete(key); return null }));
   return EC.get(key);
 }
-async function computeDay(day, di = 0) {
+async function computeDay(day, di = 0, hint = {}) {
   await ensureHome(day);
   const D = plan.data, out = { items: [], driveMin: 0, km: 0, visits: 0, est: false, end: null, warn: [], ferger: [] };
   let t = toMin(day.start.kl) ?? 480;
@@ -239,9 +242,27 @@ async function computeDay(day, di = 0) {
   const W0 = lKl != null ? lKl : LUNSJ_FRA, W1 = lKl != null ? lKl : LUNSJ_TIL;
   let lunchDone = !!lun.av;
   const lunch = (begin, underveis) => { out.items.push({ kind: "lunsj", n: "L", begin, end: begin + lMin, underveis, fast: lKl != null }); lunchDone = true };
-  day.stopp.forEach((st, si) => st._si = si);
-  for (const st of day.stopp) {
-    const si = st._si; delete st._si;
+  // Godtatte invitasjoner fra kolleger denne dagen legges inn automatisk (låst tid og sted) – gjelder bare min egen rute
+  const stops = day.stopp.slice();
+  if (window.KKInv && isOwnPlan()) {
+    const inv = window.KKInv.accepted().filter(i => i.dato === day.dato && i.rute_id !== plan.id && i.fra_kl != null && !stops.some(x => x.inv === i.id));
+    inv.sort((a, b) => a.fra_kl - b.fra_kl).forEach(i => {
+      const v = { type: "avtale", kat: "invitasjon", inv: i.id, uid: "inv-" + i.id, tittel: `Kundemøte hos ${i.kundenavn}`, med: i.fra_epost, min: Math.max(15, (i.til_kl || i.fra_kl + 60) - i.fra_kl), avtalt: hm(i.fra_kl), lat: i.lat, lon: i.lon, sted: i.kundenavn, adr: i.sted, virtuell: true };
+      const prevC = computed[di];
+      let at = stops.length;
+      if (hint[i.id] != null) at = Math.min(hint[i.id], stops.length); else
+      for (let k = 0; k < stops.length; k++) {
+        const s = stops[k], kl = toMin(s.avtalt);
+        const pc = prevC && prevC.items.find(x => x.st === s);
+        const b = kl != null ? kl : pc ? pc.begin : null;
+        if (b != null && b > i.fra_kl) { at = k; break }
+      }
+      stops.splice(at, 0, v);
+    });
+  }
+  stops.forEach((st, pos) => { st._pos = pos; st._si = st.virtuell ? -1 : day.stopp.indexOf(st) });
+  for (const st of stops) {
+    const si = st._si, pos = st._pos; delete st._si; delete st._pos;
     const avt = isAvt(st);
     if (!avt && (st.status === "avlyst" || st.status === "utsatt")) {
       out.items.push({ kind: "kunde", si, n: "–", st, c: kunde(st.k), pt: null, leg: null, arr: t, begin: t, end: t, wait: 0, late: 0, skip: true });
@@ -250,11 +271,11 @@ async function computeDay(day, di = 0) {
     const c = avt ? null : kunde(st.k);
     const pt = stopPt(st);
     // A: lunsj før vi kjører videre (vi er ferdig med forrige stopp innenfor vinduet)
-    if (!lunchDone && si > 0 && t >= W0 - 15 && t <= W1) { const b = ceil15(Math.max(t, W0)); lunch(b, false); t = b + lMin }
+    if (!lunchDone && pos > 0 && t >= W0 - 15 && t <= W1) { const b = ceil15(Math.max(t, W0)); lunch(b, false); t = b + lMin }
     const L = await legTo(pt, st);
     let base = L ? t + L.total : t;
     // B: lunsj underveis når kjøringen går gjennom lunsjvinduet
-    if (!lunchDone && si > 0 && L && t < W0 - 15 && base > W0) { lunch(W0, true); base += lMin }
+    if (!lunchDone && pos > 0 && L && t < W0 - 15 && base > W0) { lunch(W0, true); base += lMin }
     const arr = L ? ceil15(base) : base;
     const want = toMin(st.avtalt);
     const begin = want != null && want > arr ? want : arr;
@@ -265,7 +286,10 @@ async function computeDay(day, di = 0) {
     out.items.push({ kind: avt ? "avtale" : "kunde", si, n: num, st, c, pt, leg: L, arr, begin, end: begin + len, wait: begin - arr, late });
     t = begin + len; if (pt) prev = pt;
   }
-  if (!lunchDone && !lun.av && day.stopp.length > 1) out.warn.push(lKl != null ? `Fant ikke plass til lunsj kl. ${lun.kl}.` : "Fant ikke plass til lunsj mellom 11.00 og 12.30.");
+  // Et godtatt møte som ikke rekkes: flytt det tidligere i dagen og regn på nytt
+  const lateInv = out.items.find(x => x.st && x.st.virtuell && x.late > 0 && stops.indexOf(x.st) > 0);
+  if (lateInv) { const h = { ...hint, [lateInv.st.inv]: stops.indexOf(lateInv.st) - 1 }; return computeDay(day, di, h) }
+  if (!lunchDone && !lun.av && stops.length > 1) out.warn.push(lKl != null ? `Fant ikke plass til lunsj kl. ${lun.kl}.` : "Fant ikke plass til lunsj mellom 11.00 og 12.30.");
   if (day.slutt) {
     const pt = day.slutt.lat != null ? [day.slutt.lat, day.slutt.lon] : null;
     const L = await legTo(pt, day.slutt);
@@ -294,7 +318,7 @@ function summary() {
       stopp: c.items.filter(x => x.kind !== "start").map(x => x.kind === "kunde"
         ? { n: x.n, type: "kunde", k: x.st.k, status: x.st.status || "planlagt", skip: !!x.skip, deltakere: (x.st.deltakere || []).map(kollNavn), kontakt: x.st.kontakt || "", navn: x.c ? x.c.n : x.st.k, sted: x.c ? [x.c.adr, x.c.ps].filter(Boolean).join(", ") : "", fra: Math.round(x.begin), til: Math.round(x.end), ankomst: Math.round(x.arr), kjoring: x.leg ? Math.round(x.leg.total) : 0 }
         : x.kind === "avtale"
-        ? { n: x.n, type: "avtale", kat: x.st.kat, navn: avtNavn(x.st), sted: (AVT[x.st.kat] || {}).avd ? "Lindab " + AVT[x.st.kat].avd : (x.st.adr || x.st.sted || ""), fra: Math.round(x.begin), til: Math.round(x.end), ankomst: Math.round(x.arr), kjoring: x.leg ? Math.round(x.leg.total) : 0 }
+        ? { n: x.n, type: "avtale", kat: x.st.kat, navn: avtNavn(x.st) + (x.st.virtuell ? ` (med ${kollNavn(x.st.med)})` : ""), sted: (AVT[x.st.kat] || {}).avd ? "Lindab " + AVT[x.st.kat].avd : (x.st.adr || x.st.sted || ""), fra: Math.round(x.begin), til: Math.round(x.end), ankomst: Math.round(x.arr), kjoring: x.leg ? Math.round(x.leg.total) : 0 }
         : x.kind === "lunsj"
         ? { n: x.n, type: "lunsj", navn: "Lunsj", fra: Math.round(x.begin), til: Math.round(x.end), ankomst: Math.round(x.begin), kjoring: 0, underveis: !!x.underveis }
         : { n: x.n, type: d.slutt.type, navn: d.slutt.type === "hjem" ? "Hjem" : d.slutt.navn, sted: d.slutt.adr || "", ankomst: Math.round(x.arr), kjoring: x.leg ? Math.round(x.leg.total) : 0 })
@@ -316,6 +340,7 @@ async function save() {
   store.set("kk_plan", plan.id);
   setStatus("Lagret " + new Date().toLocaleTimeString("nb-NO", { hour: "2-digit", minute: "2-digit" }));
   loadList(true);
+  if (window.KKInv) window.KKInv.syncFromPlan(plan, plan.data.sammendrag).catch(() => { });
 }
 async function loadList(quiet) {
   const { data, error } = await KK().sb.from("ruteplaner").select("id,tittel,laget_av,endret,delt_med").order("endret", { ascending: false });
@@ -327,6 +352,7 @@ async function openPlan(id, dayIdx) {
   if (error || !data) { setStatus("Fant ikke ruten."); return }
   plan = { id: data.id, tittel: data.tittel, laget_av: data.laget_av, delt_med: data.delt_med || [], data: Object.assign({ besokMin: 60, pause: true, fergeVent: 30, dager: [] }, data.data || {}) };
   if (!plan.data.dager.length) plan.data.dager.push(newPlan().data.dager[0]);
+  ensureUids(plan);
   readonly = plan.laget_av !== (me().epost || "");
   active = Math.min(Math.max(0, dayIdx || 0), plan.data.dager.length - 1); hotelMode = false; overview = false; wantFit = true; store.set("kk_plan", id);
   return recompute();
@@ -342,7 +368,7 @@ function addStop(k) {
   if (c.lat == null) { flash(`${c.n} mangler sted og kan ikke legges i ruten.`); return }
   const d = day();
   if (d.stopp.some(s => s.k === k)) { flash(`${c.n} er allerede med på dag ${active + 1}.`); return }
-  d.stopp.push({ k, min: plan.data.besokMin || 60, avtalt: "" });
+  d.stopp.push({ uid: uid(), k, min: plan.data.besokMin || 60, avtalt: "" });
   change();
 }
 let flashMsg = null;
@@ -363,6 +389,7 @@ async function loadKolleger() {
 }
 const kollNavn = e => { const k = (KOLL || []).find(x => x.epost === e); return k ? k.navn : String(e || "").split("@")[0] };
 const isOwner = () => plan && (!plan.id || plan.laget_av === me().epost);
+const isOwnPlan = isOwner;
 function shareHtml() {
   if (!shareOpen) return "";
   const list = (KOLL || []).filter(k => k.epost !== plan.laget_av);
@@ -373,9 +400,11 @@ function shareHtml() {
     <div class="mut">De du deler med kan lese ruta og laste ned PDF, og den vises i kalenderen deres. Bare du kan endre den.</div></div>`;
 }
 function addDeltaker(st, epost) {
+  if (!st.uid) st.uid = uid();
   st.deltakere = [...new Set([...(st.deltakere || []), epost])];
-  if (epost !== plan.laget_av && !(plan.delt_med || []).includes(epost)) { plan.delt_med = [...(plan.delt_med || []), epost]; flash(`${kollNavn(epost)} er lagt til, og ruta er delt med ${kollNavn(epost)}.`) }
+  flash(`${kollNavn(epost)} får en invitasjon til møtet og må godta den.`);
 }
+const INVS = { ventende: ["Venter på svar", ""], godtatt: ["✓ Godtatt", "avtalt"], avslatt: ["Avslått", "avlyst"] };
 async function deletePlan() {
   if (!isOwner()) return;
   clearTimeout(saveT); saveT = null;
@@ -399,7 +428,7 @@ function acOptions() { return KK().DATA.filter(c => c.lat != null || !c.pro).map
 function insertByTime(dd, di, st) {
   const kl = toMin(st.avtalt), c = computed[di];
   let at = dd.stopp.length;
-  if (kl != null && c) { const hit = c.items.find(x => (x.kind === "kunde" || x.kind === "avtale") && x.begin >= kl); if (hit) at = hit.si }
+  if (kl != null && c) { const hit = c.items.find(x => (x.kind === "kunde" || x.kind === "avtale") && x.si >= 0 && x.begin >= kl); if (hit) at = hit.si }
   dd.stopp.splice(Math.min(at, dd.stopp.length), 0, st);
 }
 function addDay() {
@@ -532,7 +561,7 @@ function nearCustomers() {
 function addNear(k) {
   const c = kunde(k), d = day(); if (!c) return;
   if (d.stopp.some(x => x.k === k)) { flash(`${c.n} er allerede med denne dagen.`); return }
-  if (c.lat == null) { d.stopp.push({ k, min: plan.data.besokMin || 60, avtalt: "" }); flash(`${c.n} lagt inn sist i dagen (mangler kartposisjon).`); change(); return }
+  if (c.lat == null) { d.stopp.push({ uid: uid(), k, min: plan.data.besokMin || 60, avtalt: "" }); flash(`${c.n} lagt inn sist i dagen (mangler kartposisjon).`); change(); return }
   const pt = [c.lat, c.lon], comp = computed[active];
   const pts = d.stopp.map(stopPt);
   const startPt = comp && comp.items[0].pt, endPt = d.slutt && d.slutt.lat != null ? [d.slutt.lat, d.slutt.lon] : null;
@@ -543,7 +572,7 @@ function addNear(k) {
     const cost = hav(prev, pt) + (next ? hav(pt, next) - hav(prev, next) : 0);
     if (cost < bestCost) { bestCost = cost; bestI = i }
   }
-  d.stopp.splice(bestI, 0, { k, min: plan.data.besokMin || 60, avtalt: "" });
+  d.stopp.splice(bestI, 0, { uid: uid(), k, min: plan.data.besokMin || 60, avtalt: "" });
   flash(`${c.n} lagt inn som besøk ${active + 1}.${bestI + 1}.`);
   change();
 }
@@ -717,6 +746,7 @@ function render() {
   <div class="plhead">
     <div class="plrow"><select id="plPick" aria-label="Velg rute"></select><button type="button" class="btn" id="plNew">Ny rute</button><button type="button" class="btn" id="plIcs" title="Last ned som kalenderfil for Outlook">Til Outlook</button><button type="button" class="btn" id="plPdf" title="Last ned oppsummering som PDF">PDF</button>${plan.id && isOwner() ? `<button type="button" class="btn" id="plShare" aria-pressed="${shareOpen}">Del${(plan.delt_med || []).length ? ` (${plan.delt_med.length})` : ""}</button>` : ""}${isOwner() ? `<button type="button" class="btn danger" id="plDel" title="Slett hele ruta">${delPlanArm ? "Trykk igjen for å slette" : "Slett rute"}</button>` : ""}</div>
     ${shareHtml()}
+    ${window.KKInv ? window.KKInv.html({ pendingOnly: true }) : ""}
     <div class="plrow"><input id="plTitle" class="pltitle" value="${esc(plan.tittel)}" aria-label="Navn på ruten" ${ro}></div>
     ${readonly ? `<div class="box warn">Ruta er laget av ${esc(kollNavn(plan.laget_av))}${(plan.delt_med || []).includes(me().epost) ? " og delt med deg" : ""}. Du kan lese den, men bare ${esc(kollNavn(plan.laget_av))} kan endre den.</div>` : ""}
     <div class="plrow small">
@@ -787,6 +817,15 @@ function dayHtml(d, c, ro) {
         return;
       }
       h += legHtml(x.leg, x.si, ro);
+      if (x.kind === "avtale" && x.st.virtuell) {
+        h += `<div class="step avt inv"><span class="pn avt">K</span><div class="sbody">
+          <b>${esc(x.st.tittel)}</b> <span class="stbadge avtalt">✓ Godtatt</span>
+          <div class="mut">Sammen med ${esc(kollNavn(x.st.med))}${x.st.adr ? " · " + esc(x.st.adr) : ""} · ankomst ${hm(x.arr)}${x.wait > 1 ? ` · ledig ${dur(x.wait)} før` : ""}</div>
+          ${x.late ? `<div class="late">Rekker ikke møtet kl. ${esc(x.st.avtalt)}: ${dur(x.late)} for sent.</div>` : ""}
+          <div class="when"><b>${hm(x.begin)}–${hm(x.end)}</b> <span class="mut">· tiden er satt av ${esc(kollNavn(x.st.med))}. Endre eller trekk deg under Kalender.</span></div>
+        </div></div>`;
+        return;
+      }
       if (x.kind === "avtale") {
         const a = AVT[x.st.kat] || {};
         h += `<div class="step avt"><span class="pn avt">${esc(x.n)}</span><div class="sbody">
@@ -821,7 +860,7 @@ function dayHtml(d, c, ro) {
           <label>Status <select data-i="${x.si}" data-f="status" ${ro}>${STATUS.map(([v, l]) => `<option value="${v}" ${(x.st.status || "planlagt") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
           <input class="grow" data-i="${x.si}" data-f="kontakt" value="${esc(x.st.kontakt || "")}" placeholder="Kontaktperson som deltar" ${ro}>
         </div>
-        <div class="plrow small wrap dlt">${(x.st.deltakere || []).map(e => `<span class="dchip">${esc(kollNavn(e))}${ro ? "" : `<button type="button" data-dltrm="${x.si}" data-e="${esc(e)}" aria-label="Fjern ${esc(kollNavn(e))}">×</button>`}</span>`).join("")}
+        <div class="plrow small wrap dlt">${(x.st.deltakere || []).map(e => { const sv = window.KKInv && plan.id ? window.KKInv.statusFor(plan.id, x.st.uid, e) : null, I = INVS[sv]; return `<span class="dchip ${sv || ""}" title="${I ? I[0] : "Invitasjon sendes når ruta lagres"}">${esc(kollNavn(e))}${I ? ` <i class="ist ${I[1]}">${I[0]}</i>` : ""}${ro ? "" : `<button type="button" data-dltrm="${x.si}" data-e="${esc(e)}" aria-label="Fjern ${esc(kollNavn(e))}">×</button>`}</span>` }).join("")}
           ${ro || !KOLL ? "" : `<select data-dlt="${x.si}" aria-label="Legg til kollega på besøket"><option value="">+ Kollega på besøket</option>${KOLL.filter(k => k.epost !== me().epost && !(x.st.deltakere || []).includes(k.epost)).map(k => `<option value="${esc(k.epost)}">${esc(k.navn)}</option>`).join("")}</select>`}</div>
         <div class="plrow small">
           <label>Varighet <input type="number" min="5" step="5" data-i="${x.si}" data-f="min" value="${esc(x.st.min)}" ${ro}> min</label>
@@ -839,7 +878,7 @@ function dayHtml(d, c, ro) {
       h += avtMode ? `<form class="avtform" id="avtForm">
           <b>Ny avtale</b>
           <div class="plrow small wrap">
-            <select id="avKat">${Object.entries(AVT).map(([k, v]) => `<option value="${k}">${v.l}</option>`).join("")}</select>
+            <select id="avKat">${Object.entries(AVT).filter(([, v]) => !v.skjult).map(([k, v]) => `<option value="${k}">${v.l}</option>`).join("")}</select>
             <input class="grow" id="avTit" placeholder="Beskrivelse (valgfritt)">
           </div>
           <div class="plrow small wrap" id="avStedRow" hidden>
@@ -874,6 +913,7 @@ function bind() {
   const D = plan.data, d = D.dager[active];
   $("plPick").onchange = e => { if (e.target.value) openPlan(e.target.value) };
   $("plIcs").onclick = exportIcs;
+  if (window.KKInv) window.KKInv.bind($("planner"));
   $("plPdf").onclick = exportPdf;
   if ($("plShare")) $("plShare").onclick = async () => { shareOpen = !shareOpen; render(); if (shareOpen) { await loadKolleger(); render() } };
   document.querySelectorAll("#planner [data-share]").forEach(cb => cb.onchange = () => { const e = cb.dataset.share, s = new Set(plan.delt_med || []); cb.checked ? s.add(e) : s.delete(e); plan.delt_med = [...s]; scheduleSave(); render() });
@@ -956,7 +996,7 @@ function bind() {
   if ($("avKat")) $("avKat").onchange = e => { $("avMin").value = AVT[e.target.value].min; $("avStedRow").hidden = !AVT[e.target.value].sted; if (AVT[e.target.value].sted) $("avSted").focus() };
   if ($("avtForm")) $("avtForm").onsubmit = async e => {
     e.preventDefault();
-    const st = { type: "avtale", kat: $("avKat").value, tittel: $("avTit").value.trim(), min: Math.max(5, +$("avMin").value || AVT[$("avKat").value].min), avtalt: $("avKl").value || "" };
+    const st = { uid: uid(), type: "avtale", kat: $("avKat").value, tittel: $("avTit").value.trim(), min: Math.max(5, +$("avMin").value || AVT[$("avKat").value].min), avtalt: $("avKl").value || "" };
     if (AVT[st.kat].sted) {
       const v = $("avSted").value.trim(); if (!v) { flash("Skriv stedet eller adressen."); return }
       const nv = v.toLowerCase(), fp = FLYPLASSER.find(f => f[1].toLowerCase() === nv || f[0].toLowerCase() === nv || (/lufthavn|flyplass/.test(nv) && nv.replace(/lufthavn|flyplass/g, " ").split(/\s+/).filter(w => w.length > 2).every(w => f[1].toLowerCase().includes(w))));
@@ -1117,5 +1157,6 @@ async function toggle(force) {
   } else recompute();
   setTimeout(() => KK().invalidate(), 0);
 }
-window.KKPlan = { toggle, openPlan, computeDay, leg, ferryDeparture, departuresTable, hm, dur, buildIcs, get open() { return open }, get plan() { return plan }, get computed() { return computed } };
+document.addEventListener("kk:inv", () => { if (open && plan) recompute() });
+window.KKPlan = { toggle, openPlan, computeDay, recompute: () => { if (open && plan) recompute() }, kollNavn, leg, ferryDeparture, departuresTable, hm, dur, buildIcs, get open() { return open }, get plan() { return plan }, get computed() { return computed } };
 })();

@@ -316,6 +316,15 @@ body.planning .legend{display:none}
 .btn.danger{color:var(--late);border-color:var(--late)}
 .sharebox{display:flex;flex-direction:column;gap:4px;border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:6px 0;background:var(--accent-soft)}
 .dlt{gap:6px;align-items:center}.dchip{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;border-radius:999px;padding:2px 4px 2px 10px;background:var(--accent-soft)}.dchip button{border:0;background:none;color:inherit;cursor:pointer;font-size:14px;line-height:1;padding:0 4px}
+.nbadge{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;margin-left:6px;border-radius:999px;background:var(--late);color:#fff;font-size:11px;font-weight:800;vertical-align:1px}
+.invbanner{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;background:var(--late);color:#fff;border-radius:10px;padding:10px 12px;font-weight:600;font-size:14px}.invbanner .btn{background:#fff;color:var(--late);border-color:#fff}
+.invbox{display:flex;flex-direction:column;gap:6px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:8px 0;background:var(--panel)}.invbox h3{margin:4px 0 2px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.inv{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 10px;border-radius:8px;background:var(--accent-soft)}.inv.ventende{border-left:4px solid var(--late)}.inv.godtatt{border-left:4px solid var(--segA)}.inv.avslatt{opacity:.7}.inv.out{background:transparent;border:1px dashed var(--line)}
+.inva{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.invb{min-width:0;flex:1}
+.dchip .ist{font-style:normal;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:0 5px;border-radius:4px;background:var(--line);margin-left:2px}.dchip .ist.avtalt{background:var(--segA);color:#fff}.dchip .ist.avlyst{background:var(--late);color:#fff}
+.step.inv .sbody{border-left:3px solid var(--segA)}
+.cev.cinv,.ccard.cinv{border-left-color:var(--segA);border-style:dashed}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:var(--panel);padding:10px 16px;border-radius:999px;font-weight:600;box-shadow:0 6px 24px rgba(0,0,0,.3);z-index:9999;max-width:min(92vw,520px)}
 .avtform{display:flex;flex-direction:column;gap:8px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--accent-soft);margin:6px 0}
 .plrow.small select{max-width:100%}
 .pltabs .chip .dot{width:9px;height:9px;border-radius:50%}
@@ -548,6 +557,7 @@ body.planning .legend{display:none}
       <div class="f full chips" role="group" aria-label="Segment" id="fSeg"></div>
       <div class="f full chips" role="group" aria-label="Vis bare" id="fFlag"></div>
       <div class="f full chips pros" role="group" aria-label="Prospekter" id="fPros"></div>
+      <div class="invbanner" id="invBanner" hidden></div>
     </div>
     <div class="active" id="activeF" hidden aria-label="Aktive filtre"></div>
     <div class="listhead">
@@ -612,13 +622,14 @@ body.planning .legend{display:none}
 </div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=20261109k"></script>
-<script src="app.js?v=20261109k"></script>
-<script src="adresser.js?v=20261109k"></script>
-<script src="planner.js?v=20261109k"></script>
-<script src="calendar.js?v=20261109k"></script>
-<script src="ferger.js?v=20261109k"></script>
-<script src="avdelinger.js?v=20261109k"></script>
-<script src="lunsj.js?v=20261109k"></script>
+<script src="config.js?v=20261110a"></script>
+<script src="app.js?v=20261110a"></script>
+<script src="adresser.js?v=20261110a"></script>
+<script src="planner.js?v=20261110a"></script>
+<script src="calendar.js?v=20261110a"></script>
+<script src="invitasjoner.js?v=20261110a"></script>
+<script src="ferger.js?v=20261110a"></script>
+<script src="avdelinger.js?v=20261110a"></script>
+<script src="lunsj.js?v=20261110a"></script>
 </body>
 </html>

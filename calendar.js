@@ -31,15 +31,24 @@ async function load() {
       stopp: s ? s.stopp : d.stopp.map(x => x.type === "avtale" ? { type: "avtale", navn: x.tittel || "Avtale" } : ({ type: "kunde", status: x.status, navn: (KK().DATA.find(c => c.k === x.k) || {}).n || x.k })),
       hotell: d.slutt && d.slutt.type === "hotell" ? d.slutt.navn : "" });
   }));
+  // Godtatte invitasjoner fra kolleger: vises som egne hendelser i min kalender
+  if (window.KKInv) window.KKInv.accepted().filter(i => i.dato).forEach(i => events.push({ inv: i, id: null, dato: i.dato, tittel: `Kundemøte hos ${i.kundenavn || ""}`, av: i.fra_epost, mine: true, farge: 7,
+    start: i.fra_kl, slutt: i.til_kl, km: null, besok: 1, fra: "", stopp: [{ type: "kunde", status: "avtalt", navn: i.kundenavn || "", fra: i.fra_kl }], hotell: "", med: i.fra_epost }));
   events.sort((a, b) => a.dato.localeCompare(b.dato) || (a.start ?? 0) - (b.start ?? 0));
   render();
 }
 
+const navn = e => (window.KKPlan && window.KKPlan.kollNavn) ? window.KKPlan.kollNavn(e) : seller(e);
 function chip(e) {
+  if (e.inv) return `<button type="button" class="cev cinv" data-inv-id="${e.inv.id}" title="Kundemøte sammen med ${esc(navn(e.med))}"><b>${esc(e.tittel)}</b><span>${hm(e.start)} · med ${esc(navn(e.med))}</span></button>`;
   return `<button type="button" class="cev c${e.farge}${e.mine ? " mine" : ""}" data-id="${e.id}" data-day="${e.day}" title="${esc(e.tittel)} · dag ${e.day + 1}">
     <b>${esc(e.mine ? e.tittel : seller(e.av))}</b><span>${e.mine ? "" : esc(e.tittel) + " · "}${e.besok} besøk${e.hotell ? " · " + esc(e.hotell) : ""}</span></button>`;
 }
 function card(e) {
+  if (e.inv) return `<button type="button" class="ccard cinv" data-inv-id="${e.inv.id}">
+    <div class="cct"><b>${esc(e.tittel)}</b><span class="who">med ${esc(navn(e.med))}</span></div>
+    <div class="ccm">${e.start != null ? `${hm(e.start)}–${hm(e.slutt)}` : ""}${e.inv.sted ? " · " + esc(e.inv.sted) : ""}</div>
+    <div class="cch">Invitasjon godtatt · ruta «${esc(e.inv.rute_tittel || "")}»</div></button>`;
   const kunder = e.stopp.filter(x => x.type === "kunde" || x.type === "avtale");
   return `<button type="button" class="ccard c${e.farge}${e.mine ? " mine" : ""}" data-id="${e.id}" data-day="${e.day}">
     <div class="cct"><b>${esc(e.tittel)}</b>${e.mine ? "" : `<span class="who">${esc(seller(e.av))}</span>`}</div>
@@ -74,6 +83,7 @@ function render() {
       <button type="button" class="x" id="cClose" aria-label="Lukk kalenderen">×</button>
     </div>
     ${people.length > 1 ? `<div class="clegend">${people.map(e => `<span class="c${e.farge}"><i></i>${esc(e.mine ? "Mine ruter" : seller(e.av))}</span>`).join("")}</div>` : ""}
+    ${window.KKInv ? window.KKInv.html() : ""}
     ${loading ? `<div class="status cpad">Henter ruter …</div>` : err ? `<div class="status cpad">Kunne ikke hente ruter: ${esc(err)}</div>` : ""}
     ${!loading && !err && !events.length ? `<div class="status cpad">Ingen ruter ennå. Lag en i Planleggeren, så dukker reisedagene opp her.</div>` : ""}
     ${body}`;
@@ -82,6 +92,8 @@ function render() {
   $("cToday").onclick = () => { cursor = new Date(); render() };
   $("cClose").onclick = () => toggle(false);
   P.querySelectorAll("[data-v]").forEach(b => b.onclick = () => { view = b.dataset.v; store.set("kk_calview", view); render() });
+  if (window.KKInv) { window.KKInv.bind(P); window.KKInv.markSeen() }
+  P.querySelectorAll("[data-inv-id]").forEach(b => b.onclick = () => { const el = P.querySelector(".invbox"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }) });
   P.querySelectorAll("[data-id]").forEach(b => b.onclick = async () => {
     toggle(false);
     if (!window.KKPlan.open) await window.KKPlan.toggle(true);
@@ -103,6 +115,7 @@ function toggle(force) {
     });
   }
 }
+document.addEventListener("kk:inv", () => { if (open) load() });
 document.addEventListener("keydown", e => { if (e.key === "Escape" && open && !document.querySelector(".dlg:not([hidden])")) toggle(false) });
 window.KKCal = { toggle, load, get open() { return open }, get events() { return events } };
 })();
