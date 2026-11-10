@@ -247,7 +247,7 @@ async function computeDay(day, di = 0, hint = {}) {
   if (window.KKInv && isOwnPlan()) {
     const inv = window.KKInv.accepted().filter(i => i.dato === day.dato && i.rute_id !== plan.id && i.fra_kl != null && !stops.some(x => x.inv === i.id));
     inv.sort((a, b) => a.fra_kl - b.fra_kl).forEach(i => {
-      const v = { type: "avtale", kat: "invitasjon", inv: i.id, uid: "inv-" + i.id, tittel: `Kundemøte hos ${i.kundenavn}`, med: i.fra_epost, min: Math.max(15, (i.til_kl || i.fra_kl + 60) - i.fra_kl), avtalt: hm(i.fra_kl), lat: i.lat, lon: i.lon, sted: i.kundenavn, adr: i.sted, virtuell: true };
+      const v = { type: "avtale", kat: "invitasjon", inv: i.id, ruteId: i.rute_id, stoppUid: i.stopp_uid, uid: "inv-" + i.id, tittel: `Kundemøte hos ${i.kundenavn}`, med: i.fra_epost, min: Math.max(15, (i.til_kl || i.fra_kl + 60) - i.fra_kl), avtalt: hm(i.fra_kl), lat: i.lat, lon: i.lon, sted: i.kundenavn, adr: i.sted, virtuell: true };
       const prevC = computed[di];
       let at = stops.length;
       if (hint[i.id] != null) at = Math.min(hint[i.id], stops.length); else
@@ -340,7 +340,7 @@ async function save() {
   store.set("kk_plan", plan.id);
   setStatus("Lagret " + new Date().toLocaleTimeString("nb-NO", { hour: "2-digit", minute: "2-digit" }));
   loadList(true);
-  if (window.KKInv) window.KKInv.syncFromPlan(plan, plan.data.sammendrag).catch(() => { });
+  if (window.KKInv) { window.KKInv.flushPending(plan.id).catch(() => { }); window.KKInv.syncFromPlan(plan, plan.data.sammendrag).catch(() => { }) }
 }
 async function loadList(quiet) {
   const { data, error } = await KK().sb.from("ruteplaner").select("id,tittel,laget_av,endret,delt_med").order("endret", { ascending: false });
@@ -382,6 +382,11 @@ function setEnd(slutt) {
   change();
 }
 let avtMode = false, delPlanArm = false, shareOpen = false, KOLL = null;
+function noteField(st, ro) {
+  if (!window.KKInv || !st.uid) return "";
+  const deltar = (st.deltakere || []).includes(me().epost);
+  return window.KKInv.noteHtml(plan.id, st.uid, { readonly: !!ro && !deltar });
+}
 async function loadKolleger() {
   if (KOLL) return KOLL;
   const { data } = await KK().sb.rpc("kolleger");
@@ -736,6 +741,7 @@ document.addEventListener("pointerup", releaseRender, true);
 document.addEventListener("pointercancel", releaseRender, true);
 function render() {
   if (holdRender) { pendingRender = true; return }
+  const ae = document.activeElement; if (ae && ae.matches && ae.matches("#planner textarea[data-note-u]")) { pendingRender = true; ae.addEventListener("blur", () => { if (pendingRender) { pendingRender = false; render() } }, { once: true }); return }
   pendingRender = false;
   const P = $("planner"); if (!P || !open) return;
   if (!plan) { P.innerHTML = `<div class="empty">Laster ruter …</div>`; return }
@@ -823,6 +829,7 @@ function dayHtml(d, c, ro) {
           <div class="mut">Sammen med ${esc(kollNavn(x.st.med))}${x.st.adr ? " · " + esc(x.st.adr) : ""} · ankomst ${hm(x.arr)}${x.wait > 1 ? ` · ledig ${dur(x.wait)} før` : ""}</div>
           ${x.late ? `<div class="late">Rekker ikke møtet kl. ${esc(x.st.avtalt)}: ${dur(x.late)} for sent.</div>` : ""}
           <div class="when"><b>${hm(x.begin)}–${hm(x.end)}</b> <span class="mut">· tiden er satt av ${esc(kollNavn(x.st.med))}. Endre eller trekk deg under Kalender.</span></div>
+          ${window.KKInv ? window.KKInv.noteHtml(x.st.ruteId, x.st.stoppUid) : ""}
         </div></div>`;
         return;
       }
@@ -837,6 +844,7 @@ function dayHtml(d, c, ro) {
             <select data-i="${x.si}" data-f="kat" ${ro}>${Object.entries(AVT).map(([k, v]) => `<option value="${k}" ${x.st.kat === k ? "selected" : ""}>${v.l}</option>`).join("")}</select>
             <input class="grow" data-i="${x.si}" data-f="tittel" value="${esc(x.st.tittel || "")}" placeholder="Beskrivelse (valgfritt)" ${ro}>
           </div>
+          ${noteField(x.st, ro)}
           <div class="plrow small">
             <label>Varighet <input type="number" min="5" step="5" data-i="${x.si}" data-f="min" value="${esc(x.st.min)}" ${ro}> min</label>
             <label>Kl. <input type="time" data-i="${x.si}" data-f="avtalt" value="${esc(x.st.avtalt || "")}" ${ro}></label>
@@ -862,6 +870,7 @@ function dayHtml(d, c, ro) {
         </div>
         <div class="plrow small wrap dlt">${(x.st.deltakere || []).map(e => { const sv = window.KKInv && plan.id ? window.KKInv.statusFor(plan.id, x.st.uid, e) : null, I = INVS[sv]; return `<span class="dchip ${sv || ""}" title="${I ? I[0] : "Invitasjon sendes når ruta lagres"}">${esc(kollNavn(e))}${I ? ` <i class="ist ${I[1]}">${I[0]}</i>` : ""}${ro ? "" : `<button type="button" data-dltrm="${x.si}" data-e="${esc(e)}" aria-label="Fjern ${esc(kollNavn(e))}">×</button>`}</span>` }).join("")}
           ${ro || !KOLL ? "" : `<select data-dlt="${x.si}" aria-label="Legg til kollega på besøket"><option value="">+ Kollega på besøket</option>${KOLL.filter(k => k.epost !== me().epost && !(x.st.deltakere || []).includes(k.epost)).map(k => `<option value="${esc(k.epost)}">${esc(k.navn)}</option>`).join("")}</select>`}</div>
+        ${noteField(x.st, ro)}
         <div class="plrow small">
           <label>Varighet <input type="number" min="5" step="5" data-i="${x.si}" data-f="min" value="${esc(x.st.min)}" ${ro}> min</label>
           <label>Avtalt kl. <input type="time" data-i="${x.si}" data-f="avtalt" value="${esc(x.st.avtalt || "")}" ${ro}></label>
@@ -913,7 +922,7 @@ function bind() {
   const D = plan.data, d = D.dager[active];
   $("plPick").onchange = e => { if (e.target.value) openPlan(e.target.value) };
   $("plIcs").onclick = exportIcs;
-  if (window.KKInv) window.KKInv.bind($("planner"));
+  if (window.KKInv) { window.KKInv.bind($("planner")); window.KKInv.bindNotes($("planner")) }
   $("plPdf").onclick = exportPdf;
   if ($("plShare")) $("plShare").onclick = async () => { shareOpen = !shareOpen; render(); if (shareOpen) { await loadKolleger(); render() } };
   document.querySelectorAll("#planner [data-share]").forEach(cb => cb.onchange = () => { const e = cb.dataset.share, s = new Set(plan.delt_med || []); cb.checked ? s.add(e) : s.delete(e); plan.delt_med = [...s]; scheduleSave(); render() });
@@ -1114,9 +1123,11 @@ async function exportPdf() {
         const st = x.st, cc = x.c || {};
         const status = { avtalt: "Avtalt", utsatt: "Utsatt", avlyst: "Avlyst" }[st.status] || "Planlagt";
         const extra = [st.kontakt ? "Kontakt: " + st.kontakt : "", (st.deltakere || []).length ? "Lindab: " + st.deltakere.map(kollNavn).join(", ") : ""].filter(Boolean).join("\n");
-        rows.push([x.skip ? "–" : `${hm(x.begin)}–${hm(x.end)}`, `${x.n}  ${cc.n || st.k}`, [cc.adr, cc.ps].filter(Boolean).join(", "), status + (extra ? "\n" + extra : ""), [drive, ferge].filter(Boolean).join("\n")]);
+        const nt = window.KKInv && st.uid ? window.KKInv.note(plan.id, st.uid) : null;
+        rows.push([x.skip ? "–" : `${hm(x.begin)}–${hm(x.end)}`, `${x.n}  ${cc.n || st.k}` + (nt && nt.tekst ? `\n${nt.tekst}` : ""), [cc.adr, cc.ps].filter(Boolean).join(", "), status + (extra ? "\n" + extra : ""), [drive, ferge].filter(Boolean).join("\n")]);
       } else if (x.kind === "avtale") {
-        rows.push([`${hm(x.begin)}–${hm(x.end)}`, avtNavn(x.st), (AVT[x.st.kat] || {}).avd ? "Lindab " + AVT[x.st.kat].avd : (x.st.adr || x.st.sted || (AVT[x.st.kat] || {}).l || ""), "", [drive, ferge].filter(Boolean).join("\n")]);
+        const nt2 = window.KKInv ? window.KKInv.note(x.st.ruteId || plan.id, x.st.stoppUid || x.st.uid) : null;
+        rows.push([`${hm(x.begin)}–${hm(x.end)}`, avtNavn(x.st) + (nt2 && nt2.tekst ? `\n${nt2.tekst}` : ""), (AVT[x.st.kat] || {}).avd ? "Lindab " + AVT[x.st.kat].avd : (x.st.adr || x.st.sted || (AVT[x.st.kat] || {}).l || ""), "", [drive, ferge].filter(Boolean).join("\n")]);
       } else if (x.kind === "lunsj") {
         rows.push([`${hm(x.begin)}–${hm(x.end)}`, x.underveis ? "Lunsj (underveis)" : "Lunsj", "", "", ""]);
       } else if (x.kind === "slutt") {
@@ -1158,5 +1169,6 @@ async function toggle(force) {
   setTimeout(() => KK().invalidate(), 0);
 }
 document.addEventListener("kk:inv", () => { if (open && plan) recompute() });
+document.addEventListener("kk:notat", () => { if (open && plan) render() });
 window.KKPlan = { toggle, openPlan, computeDay, recompute: () => { if (open && plan) recompute() }, kollNavn, leg, ferryDeparture, departuresTable, hm, dur, buildIcs, get open() { return open }, get plan() { return plan }, get computed() { return computed } };
 })();

@@ -8,7 +8,8 @@ const KK = () => window.KK;
 const hm = v => v == null ? "" : `${String(Math.floor(((v % 1440) + 1440) % 1440 / 60)).padStart(2, "0")}:${String(Math.round(v) % 60).padStart(2, "0")}`;
 const dato = s => { if (!s) return ""; const d = new Date(s + "T12:00:00"); return d.toLocaleDateString("nb-NO", { weekday: "short", day: "numeric", month: "short" }) };
 const me = () => (KK().ME || {}).epost || "";
-let list = [], timer = null, loaded = false, seen = new Set();
+let list = [], timer = null, loaded = false, seen = new Set(), notes = {}, pendingNotes = {};
+const nkey = (r, u) => r + "|" + u;
 try { seen = new Set(JSON.parse(localStorage.getItem("kk_inv_seen") || "[]")) } catch (e) { }
 
 const navn = e => (window.KKPlan && window.KKPlan.kollNavn) ? window.KKPlan.kollNavn(e) : String(e || "").split("@")[0];
@@ -19,8 +20,9 @@ const outgoing = () => list.filter(i => i.fra_epost === me());
 
 async function load(quiet) {
   const sb = KK() && KK().sb; if (!sb || !me()) return;
-  const { data, error } = await sb.from("invitasjoner").select("*").order("dato");
+  const [{ data, error }, nr] = await Promise.all([sb.from("invitasjoner").select("*").order("dato"), sb.from("stopp_notat").select("*")]);
   if (error) return;
+  if (!nr.error) { const nn = {}; (nr.data || []).forEach(n => nn[nkey(n.rute_id, n.stopp_uid)] = n); const changedN = JSON.stringify(Object.values(notes).map(n => [n.rute_id, n.stopp_uid, n.tekst])) !== JSON.stringify(Object.values(nn).map(n => [n.rute_id, n.stopp_uid, n.tekst])); notes = nn; if (changedN) document.dispatchEvent(new CustomEvent("kk:notat")) }
   const before = JSON.stringify(list.map(i => [i.id, i.status, i.dato, i.fra_kl]));
   list = data || []; loaded = true;
   badge();
@@ -60,7 +62,8 @@ function html(opts = {}) {
         <div class="mut">Invitert av ${esc(navn(i.fra_epost))}${i.rute_tittel ? ` · ruta «${esc(i.rute_tittel)}»` : ""}</div></div>
       <div class="inva">${i.status === "ventende" ? `<button type="button" class="btn pri" data-inv="${i.id}" data-s="godtatt">Godta</button><button type="button" class="btn" data-inv="${i.id}" data-s="avslatt">Avslå</button>`
         : i.status === "godtatt" ? `<span class="stbadge avtalt">✓ Godtatt</span><button type="button" class="linkbtn" data-inv="${i.id}" data-s="avslatt">Trekk deg</button>`
-        : `<span class="stbadge avlyst">Avslått</span><button type="button" class="linkbtn" data-inv="${i.id}" data-s="godtatt">Godta likevel</button>`}</div></div>`;
+        : `<span class="stbadge avlyst">Avslått</span><button type="button" class="linkbtn" data-inv="${i.id}" data-s="godtatt">Godta likevel</button>`}</div>
+      ${i.status !== "avslatt" ? noteHtml(i.rute_id, i.stopp_uid) : ""}</div>`;
   const outRow = i => `<div class="inv out ${i.status}"><div class="invb"><b>${esc(navn(i.til_epost))}</b> <span class="mut">· ${esc(i.kundenavn || "")} ${esc(dato(i.dato))}${i.fra_kl != null ? ` kl. ${hm(i.fra_kl)}` : ""}</span></div>
       <div class="inva">${i.status === "ventende" ? `<span class="stbadge">Venter på svar</span>` : i.status === "godtatt" ? `<span class="stbadge avtalt">✓ Godtatt</span>` : `<span class="stbadge avlyst">Avslått</span>`}</div></div>`;
   const p = inn.filter(i => i.status === "ventende"), rest = inn.filter(i => i.status !== "ventende");
@@ -71,6 +74,7 @@ function html(opts = {}) {
   </section>`;
 }
 function bind(root) {
+  bindNotes(root);
   (root || document).querySelectorAll("[data-inv]").forEach(b => b.onclick = async () => { b.disabled = true; await respond(b.dataset.inv, b.dataset.s) });
 }
 
@@ -95,6 +99,33 @@ async function syncFromPlan(plan, sum) {
   if (changed.length) { const { error } = await sb.from("invitasjoner").upsert(changed, { onConflict: "rute_id,stopp_uid,til_epost" }); if (error) console.warn("invitasjoner:", error.message) }
   if (gone.length || changed.length) load(true);
 }
+/* Kommentar/agenda per stopp */
+const note = (r, u) => (r && notes[nkey(r, u)]) || (pendingNotes[u] != null ? { tekst: pendingNotes[u], endret_av: me(), pending: true } : null);
+async function saveNote(r, u, tekst) {
+  tekst = String(tekst || "").trim();
+  if (!r) { pendingNotes[u] = tekst; return true }
+  const cur = notes[nkey(r, u)];
+  if ((cur ? cur.tekst : "") === tekst) return true;
+  const sb = KK().sb;
+  const { data, error } = await sb.from("stopp_notat").upsert({ rute_id: r, stopp_uid: u, tekst, endret_av: me(), endret: new Date().toISOString() }, { onConflict: "rute_id,stopp_uid" }).select("*").single();
+  if (error) { toast("Kunne ikke lagre kommentaren: " + error.message); return false }
+  notes[nkey(r, u)] = data; delete pendingNotes[u];
+  return true;
+}
+async function flushPending(r) { for (const [u, t] of Object.entries(pendingNotes)) { delete pendingNotes[u]; if (t) await saveNote(r, u, t) } }
+function noteHtml(r, u, opts = {}) {
+  const n = note(r, u), who = n && !n.pending && n.endret_av !== me() ? ` · ${navn(n.endret_av)} ${new Date(n.endret).toLocaleDateString("nb-NO", { day: "numeric", month: "short" })}` : "";
+  return `<label class="f notef"><span>Kommentar / agenda${who ? `<span class="mut">${esc(who)}</span>` : ""}</span><textarea rows="2" data-note-r="${esc(r || "")}" data-note-u="${esc(u)}" placeholder="${esc(opts.placeholder || "Kort beskjed til de som skal på møtet …")}" ${opts.readonly ? "readonly" : ""}>${esc(n ? n.tekst : "")}</textarea></label>`;
+}
+function bindNotes(root) {
+  (root || document).querySelectorAll("textarea[data-note-u]").forEach(t => {
+    if (t.readOnly) return;
+    let timer = null;
+    const save = async () => { const ok = await saveNote(t.dataset.noteR || null, t.dataset.noteU, t.value); if (ok && t.dataset.noteR) t.classList.add("saved"); setTimeout(() => t.classList.remove("saved"), 1200) };
+    t.oninput = () => { clearTimeout(timer); timer = setTimeout(save, 900) };
+    t.onchange = () => { clearTimeout(timer); save() };
+  });
+}
 /* status per stopp for eieren (vises på besøket) */
 function statusFor(planId, uid, epost) { const i = list.find(x => x.rute_id === planId && x.stopp_uid === uid && x.til_epost === epost); return i ? i.status : null }
 
@@ -105,5 +136,5 @@ function start() {
   document.addEventListener("visibilitychange", () => { if (!document.hidden) load(true) });
 }
 start();
-window.KKInv = { get list() { return list }, pending, accepted, outgoing, load, respond, html, bind, syncFromPlan, statusFor, markSeen, get loaded() { return loaded } };
+window.KKInv = { note, saveNote, flushPending, noteHtml, bindNotes, get list() { return list }, pending, accepted, outgoing, load, respond, html, bind, syncFromPlan, statusFor, markSeen, get loaded() { return loaded } };
 })();
