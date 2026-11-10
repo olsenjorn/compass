@@ -461,7 +461,7 @@ function select(k, pan = true) {
   let near = "";
   if (CHARGERS && c.lat != null) {
     const n = CHARGERS.list.map(s => [hav(c.lat, c.lon, s[0], s[1]), s]).sort((a, b) => a[0] - b[0]).slice(0, 3);
-    near = `<div class="sub">Nærmeste ladestasjoner</div><div class="chg">${n.map(([d, s]) => `<div><span>${esc(s[2])}${s[4] ? ` · ${s[4]} kW` : ""}</span><span>${d < 1 ? "<1" : d.toFixed(d < 10 ? 1 : 0)} km</span></div>`).join("")}</div>`;
+    near = `<div class="sub">Nærmeste ladestasjoner</div><div class="chg">${n.map(([d, s]) => `<div><span>${esc(s[2])}${s[4] ? ` · ${s[4]} kW` : ""}${window.KKProfil && window.KKProfil.lade(s[4]) ? ` <span class="mut">(din bil ${window.KKProfil.lade(s[4]).kw} kW, ~${window.KKProfil.lade(s[4]).min} min)</span>` : ""}</span><span>${d < 1 ? "<1" : d.toFixed(d < 10 ? 1 : 0)} km</span></div>`).join("")}</div>`;
   }
   const rett = RETT[c.k];
   $("detail").innerHTML = `<button type="button" class="x" id="dx" aria-label="Lukk">×</button>
@@ -617,7 +617,7 @@ function drawChargers() {
   CHARGERS.list.forEach(s => {
     if (fast && s[4] < 50) return;
     L.circleMarker([s[0], s[1]], { radius: s[4] >= 50 ? 5 : 3.5, color: "#fff", weight: 1, fillColor: css("--charge"), fillOpacity: 1 })
-      .bindPopup(`<div class="pop"><h4>⚡ ${esc(s[2])}</h4>${esc(s[3])}<br>${s[4] ? `Inntil ${s[4]} kW · ` : ""}${s[5] ? `${s[5]} ladepunkt` : ""}<br><span class="mut">${esc(s[6])}</span></div>`).addTo(chargeLayer);
+      .bindPopup(`<div class="pop"><h4>⚡ ${esc(s[2])}</h4>${esc(s[3])}<br>${s[4] ? `Inntil ${s[4]} kW · ` : ""}${s[5] ? `${s[5]} ladepunkt` : ""}<br><span class="mut">${esc(s[6])}</span>${window.KKProfil ? window.KKProfil.ladeTekst(s[4]) : ""}</div>`).addTo(chargeLayer);
   });
 }
 const CH_TTL = 12 * 3600 * 1000;
@@ -739,6 +739,7 @@ function syncTabs() {
   $("tBook").setAttribute("aria-pressed", !!bk);
 }
 document.addEventListener("kk:view", syncTabs);
+document.addEventListener("kk:profil", () => { if (CHARGERS && chargeLayer && map && map.hasLayer(chargeLayer)) drawChargers() });
 const closeBook = () => { if (window.KKBook && window.KKBook.open) window.KKBook.toggle(false) };
 $("tBook").onclick = () => { if (window.KKCal.open) window.KKCal.toggle(false); if (!window.KKBook.open) window.KKBook.toggle(true); syncTabs() };
 $("tKunder").onclick = async () => { closeBook(); if (window.KKCal.open) window.KKCal.toggle(false); if (window.KKPlan.open) await window.KKPlan.toggle(false); syncTabs() };

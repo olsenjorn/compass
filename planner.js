@@ -20,6 +20,8 @@ const FLYPLASSER = [
   ["LYR", "Svalbard lufthavn", 78.2461, 15.4656]
 ];
 const DEFAULT_HOME = "Eidhaugsvingen 6, 9105 Kvaløya";
+const prof = () => (window.KKProfil && window.KKProfil.p) || {};
+const homeOf = () => { const h = prof().hjem; return h && h.lat != null ? { adresse: h.adresse, lat: h.lat, lon: h.lon } : homeOf() };
 const PAUSE_ETTER = 240, PAUSE_MIN = 30;           // 30 min pause per påbegynte 4 timer sammenhengende kjøring (4 t, 8 t …)
 const FLY_BUFFER = { leiebil: 20, taxi: 10 };
 const FLY_RETUR = { leiebil: 60, taxi: 45 }; // være på flyplassen så lenge før avgang (levere leiebil / innsjekk)
@@ -122,9 +124,10 @@ async function ferryDeparture(f, dateStr, fromMin) {
 let open = false, plan = null, plans = [], active = 0, hotelMode = false, readonly = false, saveT = null, computed = [], planLayer = null, hotelLayer = null, delArm = false;
 const me = () => (KK().ME || {});
 function newPlan() {
-  const home = store.get("kk_home", { adresse: DEFAULT_HOME });
+  const home = homeOf();
   const d0 = new Date(); d0.setDate(d0.getDate() + 1);
-  return { id: null, tittel: "Ny rute", laget_av: (me().epost || ""), data: { besokMin: 60, pause: true, fergeVent: 30, dager: [newDay(d0.toISOString().slice(0, 10), { type: "hjem", navn: home.adresse, lat: home.lat, lon: home.lon, kl: "06:00" })] } };
+  const P = prof();
+  return { id: null, tittel: "Ny rute", laget_av: (me().epost || ""), data: { besokMin: P.besokMin || 60, pause: P.pause !== false, ferge: P.ferge || "auto", fergeVent: 30, lunsjMin: P.lunsjMin || LUNSJ_MIN, dager: [newDay(d0.toISOString().slice(0, 10), { type: "hjem", navn: home.adresse, lat: home.lat, lon: home.lon, kl: P.startKl || "07:00" })] } };
 }
 function newDay(d, start) { return { dato: d, start, stopp: [], slutt: null } }
 const kunde = k => KK().DATA.find(c => c.k === k);
@@ -239,7 +242,7 @@ async function computeDay(day, di = 0, hint = {}) {
   };
   // Lunsj: automatisk mellom to stopp i tidsrommet 11–12.30, eller fast klokkeslett hvis satt. Kan slås av per dag.
   const lun = day.lunsj || {};
-  const lMin = +lun.min || LUNSJ_MIN, lKl = toMin(lun.kl);
+  const lMin = +lun.min || +D.lunsjMin || LUNSJ_MIN, lKl = toMin(lun.kl);
   const W0 = lKl != null ? lKl : LUNSJ_FRA, W1 = lKl != null ? lKl : LUNSJ_TIL;
   let lunchDone = !!lun.av;
   const lunch = (begin, underveis) => { out.items.push({ kind: "lunsj", n: "L", begin, end: begin + lMin, underveis, fast: lKl != null }); lunchDone = true };
@@ -444,7 +447,7 @@ function insertByTime(dd, di, st) {
 }
 function addDay() {
   const prev = plan.data.dager[plan.data.dager.length - 1];
-  const home = store.get("kk_home", { adresse: DEFAULT_HOME });
+  const home = homeOf();
   const s = prev.slutt && prev.slutt.type === "hotell"
     ? { type: "hotell", navn: prev.slutt.navn, lat: prev.slutt.lat, lon: prev.slutt.lon, kl: "08:00" }
     : { type: "hjem", navn: home.adresse, lat: home.lat, lon: home.lon, kl: "07:00" };
@@ -968,7 +971,7 @@ function bind() {
     delArm = false; D.dager.splice(active, 1); active = Math.max(0, active - 1); change();
   };
   $("stType").onchange = e => {
-    const t = e.target.value, home = store.get("kk_home", { adresse: DEFAULT_HOME }), prev = D.dager[active - 1];
+    const t = e.target.value, home = homeOf(), prev = D.dager[active - 1];
     if (t === "hjem") d.start = { type: "hjem", navn: home.adresse, lat: home.lat, lon: home.lon, kl: d.start.kl || "06:00" };
     if (t === "hotell") d.start = prev && prev.slutt && prev.slutt.type === "hotell" ? { type: "hotell", navn: prev.slutt.navn, lat: prev.slutt.lat, lon: prev.slutt.lon, kl: "08:00" } : { type: "hotell", navn: "", lat: null, lon: null, kl: "08:00" };
     if (t === "fly") { const f = FLYPLASSER[0]; d.start = { type: "fly", flyplass: f[0], navn: f[1], lat: f[2], lon: f[3], kl: "08:00", transport: "leiebil" } }
@@ -1040,10 +1043,10 @@ function bind() {
   document.querySelectorAll("#planner [data-rm]").forEach(b => b.onclick = () => { d.stopp.splice(+b.dataset.rm, 1); change() });
   if ($("dHotel")) $("dHotel").onclick = () => hotelMode ? (hotelMode = false, clearHotels(), render()) : showHotels();
   if ($("dFly")) $("dFly").onclick = () => { flyMode = !flyMode; hotelMode = false; clearHotels(); render() };
-  document.querySelectorAll("#planner [data-fly]").forEach(b => b.onclick = () => { const f = FLYPLASSER.find(x => x[0] === b.dataset.fly); if (!f) return; flyMode = false; setEnd({ type: "fly", navn: f[1], kode: f[0], lat: f[2], lon: f[3], avgang: (d.slutt && d.slutt.avgang) || "", transport: (d.slutt && d.slutt.transport) || "leiebil" }) });
+  document.querySelectorAll("#planner [data-fly]").forEach(b => b.onclick = () => { const f = FLYPLASSER.find(x => x[0] === b.dataset.fly); if (!f) return; flyMode = false; setEnd({ type: "fly", navn: f[1], kode: f[0], lat: f[2], lon: f[3], avgang: (d.slutt && d.slutt.avgang) || "", transport: (d.slutt && d.slutt.transport) || prof().flyTransport || "leiebil" }) });
   if ($("flyKl")) $("flyKl").onchange = e => { d.slutt.avgang = e.target.value; change() };
   if ($("flyTr")) $("flyTr").onchange = e => { d.slutt.transport = e.target.value; change() };
-  if ($("dHome")) $("dHome").onclick = () => { const home = store.get("kk_home", { adresse: DEFAULT_HOME }); setEnd({ type: "hjem", navn: home.adresse, lat: home.lat, lon: home.lon }) };
+  if ($("dHome")) $("dHome").onclick = () => { const home = homeOf(); setEnd({ type: "hjem", navn: home.adresse, lat: home.lat, lon: home.lon }) };
   if ($("dEndRm")) $("dEndRm").onclick = () => { const was = d.slutt; d.slutt = null; hotelMode = false; clearHotels(); flash(was && was.type === "hotell" ? `${was.navn || "Hotellet"} er fjernet fra dagen.` : "Slutten av dagen er fjernet."); change() };
   bindHotelRows();
   if ($("hAgain")) $("hAgain").onclick = () => { hotelAll = null; loadHotelsNN.live = true; try { localStorage.removeItem(HOTEL_KEY) } catch (e) { } showHotels(false) };
@@ -1125,7 +1128,7 @@ async function exportPdf() {
   doc.text(plan.tittel || "Rute", 14, 18);
   doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(60);
   const first = D.dager[0], last = D.dager[D.dager.length - 1];
-  doc.text(`Kundekart Nord · Lindab · ${dato(first.dato)}${D.dager.length > 1 ? " – " + dato(last.dato) : ""} · laget av ${kollNavn(plan.laget_av)}`, 14, 25);
+  doc.text(`Kundekart Nord · Lindab · ${dato(first.dato)}${D.dager.length > 1 ? " – " + dato(last.dato) : ""} · laget av ${kollNavn(plan.laget_av)}${plan.laget_av === me().epost && prof().telefon ? ` (${prof().telefon})` : ""}`, 14, 25);
   doc.text(`${D.dager.length} dag${D.dager.length > 1 ? "er" : ""} · ${tot.v} kundebesøk · ${Math.round(tot.km)} km · kjøring ${dur(tot.drive)}${(plan.delt_med || []).length ? " · delt med " + plan.delt_med.map(kollNavn).join(", ") : ""}`, 14, 30.5);
   let y = 38;
   D.dager.forEach((d, i) => {
@@ -1192,5 +1195,5 @@ async function toggle(force) {
 }
 document.addEventListener("kk:inv", () => { if (open && plan) recompute() });
 document.addEventListener("kk:notat", () => { if (open && plan) render() });
-window.KKPlan = { toggle, openPlan, computeDay, recompute: () => { if (open && plan) recompute() }, kollNavn, leg, ferryDeparture, departuresTable, hm, dur, buildIcs, get open() { return open }, get plan() { return plan }, get computed() { return computed } };
+window.KKPlan = { FLYPLASSER, toggle, openPlan, computeDay, recompute: () => { if (open && plan) recompute() }, kollNavn, leg, ferryDeparture, departuresTable, hm, dur, buildIcs, get open() { return open }, get plan() { return plan }, get computed() { return computed } };
 })();
