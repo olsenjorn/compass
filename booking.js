@@ -10,7 +10,7 @@ const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")
 const STATUS = [["planlagt", "Planlagt"], ["avtalt", "Avtalt"], ["utsatt", "Utsatt"], ["avlyst", "Avlyst"]];
 const navn = e => (window.KKPlan && window.KKPlan.kollNavn) ? window.KKPlan.kollNavn(e) : String(e || "").split("@")[0];
 
-let open = false, plans = [], filter = "ubooket", showPast = false, loading = false, err = "", q = "";
+let open = false, plans = [], filter = "ubooket", showPast = false, showShared = false, loading = false, err = "", q = "";
 
 async function load() {
   loading = true; err = ""; render();
@@ -22,6 +22,7 @@ function rows() {
   const me = (KK().ME || {}).epost, today = iso(new Date()), out = [];
   plans.forEach(p => {
     const mine = p.laget_av === me;
+    if (!mine && !showShared) return;
     (p.data && p.data.dager || []).forEach((d, di) => {
       if (!showPast && d.dato && d.dato < today) return;
       const sum = p.data.sammendrag && p.data.sammendrag[di];
@@ -67,13 +68,14 @@ function render() {
       <div class="cview" role="group" aria-label="Vis">${[["ubooket", "Ikke avtalt"], ["avtalt", "Avtalt"], ["utsatt", "Utsatt"], ["avlyst", "Avlyst"], ["alle", "Alle"]].map(([v, l]) => `<button type="button" class="chip" data-bf="${v}" aria-pressed="${filter === v}">${l} <span class="n">${n[v]}</span></button>`).join("")}</div>
       <button type="button" class="x" id="bkClose" aria-label="Lukk">×</button>
     </div>
-    <div class="bktools"><input id="bkQ" placeholder="Søk kunde, sted eller kontaktperson" value="${esc(q)}"><label class="chk"><input type="checkbox" id="bkPast" ${showPast ? "checked" : ""}> Vis også tidligere datoer</label></div>
+    <div class="bktools"><input id="bkQ" placeholder="Søk kunde, sted eller kontaktperson" value="${esc(q)}"><label class="chk"><input type="checkbox" id="bkPast" ${showPast ? "checked" : ""}> Vis også tidligere datoer</label><label class="chk"><input type="checkbox" id="bkShared" ${showShared ? "checked" : ""}> Vis delte ruter og andres</label></div>
     ${loading ? `<div class="status cpad">Henter ruter …</div>` : err ? `<div class="status cpad">Kunne ikke hente: ${esc(err)}</div>` : ""}
     <div class="bklist">${list.length ? body : `<div class="status cpad">${filter === "ubooket" ? "Alle planlagte besøk er avtalt. 👍" : "Ingen besøk i denne visningen."}</div>`}</div>`;
   $("bkClose").onclick = () => toggle(false);
   P.querySelectorAll("[data-bf]").forEach(b => b.onclick = () => { filter = b.dataset.bf; render() });
   $("bkQ").oninput = e => { q = e.target.value; const keep = e.target.selectionStart; render(); const i = $("bkQ"); i.focus(); i.setSelectionRange(keep, keep) };
   $("bkPast").onchange = e => { showPast = e.target.checked; render() };
+  $("bkShared").onchange = e => { showShared = e.target.checked; render() };
   if (window.KKInv) window.KKInv.bindNotes(P);
   P.querySelectorAll(".bk").forEach(el => {
     const p = plans.find(x => x.id === el.dataset.p), di = +el.dataset.d; if (!p) return;

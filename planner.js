@@ -736,8 +736,12 @@ function recompute() {
 function renderPicker() {
   const sel = $("plPick"); if (!sel) return;
   const mine = me().epost;
+  const opt = p => `<option value="${p.id}" ${plan && plan.id === p.id ? "selected" : ""}>${esc(p.tittel)}${p.laget_av !== mine ? ` · ${esc(kollNavn(p.laget_av))}` : ""}</option>`;
+  const egne = plans.filter(p => p.laget_av === mine), delt = plans.filter(p => p.laget_av !== mine && (p.delt_med || []).includes(mine)), andre = plans.filter(p => p.laget_av !== mine && !(p.delt_med || []).includes(mine));
   sel.innerHTML = `<option value="">${plan && !plan.id ? "Ny rute (ikke lagret)" : "Velg rute …"}</option>` +
-    plans.map(p => `<option value="${p.id}" ${plan && plan.id === p.id ? "selected" : ""}>${esc(p.tittel)}${p.laget_av !== mine ? ` · ${esc(kollNavn(p.laget_av))}` : ""}</option>`).join("");
+    (egne.length ? `<optgroup label="Mine ruter">${egne.map(opt).join("")}</optgroup>` : "") +
+    (delt.length ? `<optgroup label="Delt med meg">${delt.map(opt).join("")}</optgroup>` : "") +
+    (andre.length ? `<optgroup label="Andre selgere">${andre.map(opt).join("")}</optgroup>` : "");
 }
 // Ikke tegn panelet på nytt midt i et klikk (blur → change → render ville ellers sluke klikket)
 let holdRender = false, pendingRender = false;
