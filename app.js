@@ -1,6 +1,8 @@
 /* Kundekart Nord – Lindab. Innlogging via Supabase, kundedata beskyttet av RLS. */
 (() => {
 const CFG = window.KK_CONFIG || {};
+/* invitasjon / glemt passord: lenken logger inn uten passord, så be om nytt passord når appen er åpnet */
+try { if (/type=(invite|recovery)/.test(location.hash + location.search)) sessionStorage.setItem("kk_nytt_pw", "1") } catch (e) { }
 const sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseKey, {
   auth: { persistSession: true, autoRefreshToken: true, storageKey: "kk-auth" }
 });
@@ -179,12 +181,20 @@ async function start() {
     $("lstatus").hidden = true;
     initMap();
     refreshData(true);
+    let nyttPw = false; try { nyttPw = sessionStorage.getItem("kk_nytt_pw") === "1" } catch (e) { }
+    if (nyttPw) {
+      try { sessionStorage.removeItem("kk_nytt_pw") } catch (e) { }
+      setTimeout(() => { $("pwDlg").hidden = false; $("pwMsg").textContent = "Velg et passord du bruker når du logger inn neste gang."; $("pwNew").focus() }, 400);
+    }
     if (mfa && !mfa.verified.length && Date.now() > store.get("kk_mfa_snooze", 0)) setTimeout(() => mfaSetup(), 600);
   } catch (err) {
     $("lstatus").textContent = "Kunne ikke hente kundene: " + (err.message || err) + ". Last siden på nytt.";
   }
 }
-sb.auth.onAuthStateChange((ev) => { if (ev === "SIGNED_OUT") showLogin() });
+sb.auth.onAuthStateChange((ev) => {
+  if (ev === "SIGNED_OUT") showLogin();
+  if (ev === "PASSWORD_RECOVERY") { try { sessionStorage.setItem("kk_nytt_pw", "1") } catch (e) { } }
+});
 
 function fromDb(c) {
   return { k: c.kundenr, n: c.navn, kat: c.kategori, e: c.eier, v: +c.oms_ventilasjon || 0, p: +c.oms_profil || 0, t: +c.oms_total || 0, s: c.segment,
