@@ -307,7 +307,31 @@ async function computeDay(day, di = 0, hint = {}) {
   }
   out.end = t;
   if (out.end > 22 * 60) out.warn.push("Dagen slutter etter kl. 22.");
+  vegPaaDag(out, day);
   return out;
+}
+/* Vegmeldinger (Statens vegvesen) på hver etappe, i tidsrommet man kjører den */
+const VEG_VARSEL = ["stengt", "kolonne", "periodevis", "ras", "ulykke"];
+function vegPaaDag(out, day) {
+  const V = window.KKVeg; if (!V || !V.data || !day.dato) return;
+  let t = out.items[0] ? out.items[0].t : 0;
+  const sett = new Set();
+  out.items.forEach(x => {
+    if (x.kind === "start") return;
+    if (x.kind === "lunsj") { t = x.end; return }
+    if (x.leg && x.leg.geom && x.leg.geom.length > 1 && !x.skip) {
+      x.veg = V.paaRute(x.leg.geom, day.dato, t, x.arr);
+      x.veg.filter(m => VEG_VARSEL.includes(m.kat) && !sett.has(m.id)).forEach(m => {
+        sett.add(m.id);
+        out.warn.push(`${V.kort(m)} – på etappen til ${x.kind === "slutt" ? (day.slutt.type === "hjem" ? "hjem" : day.slutt.navn || "slutt") : x.n}.`);
+      });
+    }
+    t = x.end != null ? x.end : x.arr != null ? x.arr : t;
+  });
+}
+function vegHtml(veg) {
+  const V = window.KKVeg; if (!V || !veg || !veg.length) return "";
+  return veg.map(m => `<details class="vegwarn${VEG_VARSEL.includes(m.kat) ? " alvor" : ""}" style="--vk:${(V.KAT[m.kat] || V.KAT.annet).f}"><summary>${esc(V.kort(m))}</summary>${V.html(m, true)}</details>`).join("");
 }
 
 /* ---------- lagring ---------- */
@@ -802,13 +826,13 @@ function fergeValg(L, si, ro) {
   const b = (v, l) => `<button type="button" class="chip" data-fg="${si}" data-v="${v}" aria-pressed="${m === v}">${l}</button>`;
   return `<div class="fgvalg"><span>${diff > 0 ? `Ferge sparer ${dur(diff)}` : diff < 0 ? `Kun vei er ${dur(-diff)} raskere` : "Like raskt"} · kun vei ${dur(a.vei)} · via ferge ${dur(a.ferge)}</span>${b("auto", "Raskeste")}${b("vei", "Kun vei")}${b("ferge", "Via ferge")}</div>`;
 }
-function legHtml(L, si, ro) {
+function legHtml(L, si, ro, veg) {
   if (!L) return "";
   if (L.km < 0.2) return `<div class="leg">↓ Samme sted</div>`;
   const fer = (L.ferger || []).map(f => f.avgang != null
     ? `<div class="ferry">⛴ ${esc(f.navn)} · avgang <b>${hm(f.avgang)}</b>${f.vent > 0 ? ` (venter ${dur(f.vent)})` : ""} · overfart ${f.min} min</div>`
     : `<div class="ferry">⛴ ${esc(f.navn)} · overfart ${f.min} min + ${f.vent} min ventetid <span class="est">fant ikke ruteplan</span> · <a href="https://entur.no" target="_blank" rel="noopener">sjekk avganger</a></div>`).join("");
-  return `<div class="leg">↓ Kjøring ${dur(L.driveMin != null ? L.driveMin : L.min)} · ${km(L.km)}${L.pauses ? ` · + ${L.pauses * PAUSE_MIN} min pause` : ""}${L.est ? ` <span class="est">anslått</span>` : ""}${fer}${fergeValg(L, si, ro)}</div>`;
+  return `<div class="leg">↓ Kjøring ${dur(L.driveMin != null ? L.driveMin : L.min)} · ${km(L.km)}${L.pauses ? ` · + ${L.pauses * PAUSE_MIN} min pause` : ""}${L.est ? ` <span class="est">anslått</span>` : ""}${fer}${vegHtml(veg)}${fergeValg(L, si, ro)}</div>`;
 }
 function dayHtml(d, c, ro) {
   const it = c ? c.items : null;
@@ -835,7 +859,7 @@ function dayHtml(d, c, ro) {
           </div></div></div>`;
         return;
       }
-      h += legHtml(x.leg, x.si, ro);
+      h += legHtml(x.leg, x.si, ro, x.veg);
       if (x.kind === "avtale" && x.st.virtuell) {
         h += `<div class="step avt inv"><span class="pn avt">K</span><div class="sbody">
           <b>${esc(x.st.tittel)}</b> <span class="stbadge avtalt">✓ Godtatt</span>
@@ -892,7 +916,7 @@ function dayHtml(d, c, ro) {
     });
     const end = it.find(x => x.kind === "slutt");
     if (end) {
-      h += legHtml(end.leg, "e", ro);
+      h += legHtml(end.leg, "e", ro, end.veg);
       h += `<div class="step end"><span class="pn end">${end.n}</span><div class="sbody"><b>${d.slutt.type === "hjem" ? "Hjem" : esc(d.slutt.navn)}</b><div class="mut">Ankomst ${hm(end.arr)}${d.slutt.adr ? " · " + esc(d.slutt.adr) : ""}${end.senest != null ? ` · må være der senest ${hm(end.senest)}` : ""}</div>
         ${d.slutt.type === "fly" ? `${end.margin != null ? (end.margin < 0 ? `<div class="late">Rekker ikke flyet: ${dur(-end.margin)} for sent.</div>` : `<div class="mut">Margin ${dur(end.margin)} før flyet går.</div>`) : ""}
         <div class="plrow small wrap"><label>Flyet går kl. <input type="time" id="flyKl" value="${esc(d.slutt.avgang || "")}" ${ro}></label>
@@ -1143,7 +1167,8 @@ async function exportPdf() {
       if (x.kind === "start") return;
       const L = x.leg;
       const drive = L && L.km >= 0.2 ? `${dur(L.driveMin != null ? L.driveMin : L.min)}, ${Math.round(L.km)} km` : "";
-      const ferge = L && L.ferger && L.ferger.length ? L.ferger.map(f => `Ferge ${f.navn}${f.avgang != null ? " kl. " + hm(f.avgang) : ""}`).join("\n") : "";
+      const ferge = [L && L.ferger && L.ferger.length ? L.ferger.map(f => `Ferge ${f.navn}${f.avgang != null ? " kl. " + hm(f.avgang) : ""}`).join("\n") : "",
+        x.veg && x.veg.length && window.KKVeg ? x.veg.filter(m => VEG_VARSEL.includes(m.kat)).map(m => "! " + window.KKVeg.tekst(m)).join("\n") : ""].filter(Boolean).join("\n");
       if (x.kind === "kunde") {
         const st = x.st, cc = x.c || {};
         const status = { avtalt: "Avtalt", utsatt: "Utsatt", avlyst: "Avlyst" }[st.status] || "Planlagt";
@@ -1194,6 +1219,7 @@ async function toggle(force) {
   setTimeout(() => KK().invalidate(), 0);
 }
 document.addEventListener("kk:inv", () => { if (open && plan) recompute() });
+document.addEventListener("kk:veg", () => { if (open && plan) recompute() });
 document.addEventListener("kk:notat", () => { if (open && plan) render() });
 window.KKPlan = { FLYPLASSER, toggle, openPlan, computeDay, recompute: () => { if (open && plan) recompute() }, kollNavn, leg, ferryDeparture, departuresTable, hm, dur, buildIcs, get open() { return open }, get plan() { return plan }, get computed() { return computed } };
 })();
