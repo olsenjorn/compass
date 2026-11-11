@@ -71,7 +71,9 @@ type Kat = keyof typeof KAT;
 function klassifiser(type: string, enums: string[], tekst: string, kunTunge = false): Kat {
   const t = tekst.toLowerCase(), e = new Set(enums);
   if (/kolonne/.test(t) || e.has("convoyService") || e.has("convoyServiceInOperation")) return "kolonne";
-  const stengtNoe = e.has("roadClosed") || e.has("carriagewayClosures") || /stengt/.test(t);
+  const stengtNoe = e.has("roadClosed") || e.has("carriagewayClosures") || /stengt|stenges/.test(t);
+  if (!e.has("roadClosed") && /\b(ett|et|ett av to|ene|ene av)? ?(kjøre)?felt (er )?stengt|stengt (kjøre)?felt|feltstenging/.test(t)) return "vegarbeid";
+  if (stengtNoe && /(inntil|opp til|i inntil) \d+ ?(min|minutter)|korte perioder|stengt i perioder?\b|periodevis/.test(t)) return "periodevis";
   if (stengtNoe && (kunTunge || /gjelder for (totalvekt|kjøretøy|vogntog)|totalvekt (større|over)|personbiler[^.]*kan passere|kjøretøy[^.]*opp ?til[^.]*tonn[^.]*kan passere/.test(t))) return "begrensning";
   if (e.has("intermittentShortTermClosures") || e.has("trafficHeld") || /korte perioder|stengt i perioder|periodevis stengt|kortvarig(e)? stenging/.test(t)) return "periodevis";
   if (e.has("roadClosed") || e.has("closedPermanentlyForTheWinter") || e.has("carriagewayClosures") || /\b(vinterstengt|vegen er stengt|veien er stengt|stengt for all trafikk)\b/.test(t)) return "stengt";
@@ -128,7 +130,7 @@ export function tolk(xml: string, nowMs = Date.now()): Melding[] {
       const enums = all(r, /<ns12:\w+Type>(\w+)<\/ns12:\w+Type>/g);
       const kom = all(r, /<ns12:comment><values><value[^>]*>([^<]*)<\/value>/g).flatMap(x => x.split("|")).map(x => x.trim()).filter(Boolean);
       kom.forEach(k => { if (!tekster.includes(k)) tekster.push(k) });
-      const k = klassifiser(type, enums, kom.join(" "), /forVehiclesWithCharacteristicsOf/.test(r));
+      const k = klassifiser(type, enums, kom.join(" "), /grossWeightCharacteristic|heightCharacteristic|lengthCharacteristic|widthCharacteristic|<(?:\w+:)?vehicleType>(lorry|heavyLorry|articulatedVehicle|trailer)</.test(r));
       kandidater.push({ k, p: perioder(r) });
       if (KAT[k] < KAT[best]) best = k;
       if (ts0 != null) start = start == null ? ts0 : Math.min(start, ts0);
