@@ -29,3 +29,13 @@ Admin og leder har «Kundedata (Excel)» i kontomenyen:
   Kolonner som mangler i fila, endres ikke. Eksporter med Axapta/Lime-overskrifter kjennes igjen.
 - Lagringen skjer i databasefunksjonen `importer_kunder` (én transaksjon). Radene slik de var før,
   lagres i `import_logg`, og siste opplasting kan angres (`angre_import`).
+
+## Vegmeldinger (Statens vegvesen, DATEX II 3.1)
+
+Edge Function `vegmeldinger` henter `GetSituation/pullsnapshotdata` med Basic Auth (secrets `DATEX_USER`/`DATEX_PASS`),
+beholder meldinger i Nordland, Troms og Finnmark, klassifiserer dem (stengt, kolonne, periodevis stengt, ras, ulykke,
+føre, ferje, begrensning, vegarbeid), regner om geometri fra UTM 33 og bufrer i `vegmelding_cache` i 5 minutter.
+Funksjonen sjekker selv at kalleren er innlogget med tofaktor og står i `tilgang`.
+
+`vegmeldinger.js` viser kartlaget og sjekker hver etappe i planleggeren mot meldingene i tidsrommet man kjører der
+(inkludert tidsrom som «kl. 21–06:30 man–ons»). Data: Statens vegvesen, norsk lisens for offentlige data (NLOD).
