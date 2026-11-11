@@ -66,17 +66,21 @@ const first = (s: string, re: RegExp) => { const m = s.match(re); return m ? ent
 const all = (s: string, re: RegExp) => [...s.matchAll(re)].map(m => ent(m[1]));
 
 // rangering: lavere tall = viktigere
-const KAT = { stengt: 1, kolonne: 2, periodevis: 3, ras: 4, ulykke: 5, fore: 6, ferje: 7, vegarbeid: 8, annet: 9 } as const;
+const KAT = { stengt: 1, kolonne: 2, periodevis: 3, ras: 4, ulykke: 5, fore: 6, ferje: 7, begrensning: 8, vegarbeid: 9, annet: 10 } as const;
 type Kat = keyof typeof KAT;
-function klassifiser(type: string, enums: string[], tekst: string): Kat {
+function klassifiser(type: string, enums: string[], tekst: string, kunTunge = false): Kat {
   const t = tekst.toLowerCase(), e = new Set(enums);
-  if (/kolonne/.test(t) || e.has("convoyService") || e.has("convoyServiceInOperation") || type === "WinterDrivingManagement" && /kolonne/.test(t)) return "kolonne";
+  if (/kolonne/.test(t) || e.has("convoyService") || e.has("convoyServiceInOperation")) return "kolonne";
+  const stengtNoe = e.has("roadClosed") || e.has("carriagewayClosures") || /stengt/.test(t);
+  if (stengtNoe && (kunTunge || /gjelder for (totalvekt|kjøretøy|vogntog)|totalvekt (større|over)|personbiler[^.]*kan passere|kjøretøy[^.]*opp ?til[^.]*tonn[^.]*kan passere/.test(t))) return "begrensning";
+  if (e.has("intermittentShortTermClosures") || e.has("trafficHeld") || /korte perioder|stengt i perioder|periodevis stengt|kortvarig(e)? stenging/.test(t)) return "periodevis";
   if (e.has("roadClosed") || e.has("closedPermanentlyForTheWinter") || e.has("carriagewayClosures") || /\b(vinterstengt|vegen er stengt|veien er stengt|stengt for all trafikk)\b/.test(t)) return "stengt";
   if (e.has("intermittentShortTermClosures") || e.has("trafficHeld") || /periodevis stengt|kortvarig stenging|stengt i perioder/.test(t)) return "periodevis";
   if (type === "EnvironmentalObstruction" || /\b(ras|skred|steinsprang|jordras|snøskred|flom)\b/.test(t)) return "ras";
   if (type === "Accident" || type === "VehicleObstruction" || type === "GeneralObstruction" || type === "InfrastructureDamageObstruction" || type === "AnimalPresenceObstruction" || type === "RoadsideAssistance") return "ulykke";
   if (type === "WeatherRelatedRoadConditions" || type === "NonWeatherRelatedRoadConditions" || type === "PoorEnvironmentConditions" || type === "WinterDrivingManagement") return "fore";
   if (type === "TransitInformation" || e.has("ferry")) return "ferje";
+  if (e.has("weightRestrictionInOperation") || e.has("heightRestrictionInOperation")) return "begrensning";
   if (type === "MaintenanceWorks" || type === "ConstructionWorks" || type === "GeneralNetworkManagement" || type === "SpeedManagement" || type === "ReroutingManagement" || type === "RoadOrCarriagewayOrLaneManagement") return "vegarbeid";
   return "annet";
 }
@@ -86,8 +90,19 @@ function vegnr(r: string | null): string {
   return m[1] === "E" ? "E" + m[2] : ({ R: "Rv. ", F: "Fv. ", K: "Kv. " } as Record<string, string>)[m[1]] + m[2];
 }
 
+// Tidsrom: [fra ISO, til ISO, "HH:MM" start, "HH:MM" slutt, ukedager 0=søn..6=lør (tom = alle)]
+export type Periode = [string | null, string | null, string | null, string | null, number[]];
 export type Melding = { id: string; kat: Kat; veg: string; vegnavn: string; sted: string; tekst: string; start: string | null; slutt: string | null;
-  endret: string | null; lat: number; lon: number; geom: [number, number][][]; km: number | null; fylke: string };
+  endret: string | null; lat: number; lon: number; geom: [number, number][][]; km: number | null; fylke: string; perioder: Periode[] | null };
+const DAG: Record<string, number> = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
+function perioder(rec: string): Periode[] {
+  return [...rec.matchAll(/<validPeriod>([\s\S]*?)<\/validPeriod>/g)].map(m => {
+    const v = m[1];
+    const hm = (re: RegExp) => { const x = first(v, re); return x ? x.slice(0, 5) : null };
+    return [first(v, /<startOfPeriod>([^<]+)</), first(v, /<endOfPeriod>([^<]+)</), hm(/<startTimeOfPeriod>([^<]+)</), hm(/<endTimeOfPeriod>([^<]+)</),
+      all(v, /<applicableDay>(\w+)<\/applicableDay>/g).map(d => DAG[d]).filter(d => d != null)] as Periode;
+  });
+}
 
 export function tolk(xml: string, nowMs = Date.now()): Melding[] {
   const out: Melding[] = [];
@@ -99,6 +114,7 @@ export function tolk(xml: string, nowMs = Date.now()): Melding[] {
     if (!NORD_FYLKER.has(fylke) && !(dlat >= MIN_LAT)) continue;
     const id = first(sit, /^id="([^"]+)"/) ?? "s" + i;
     const recs = sit.split(/<ns12:situationRecord /).slice(1);
+    const kandidater: { k: Kat; p: Periode[] }[] = [];
     let best: Kat = "annet", start: number | null = null, slutt: number | null = null, endret = "", aktive = 0;
     const tekster: string[] = [], geom: [number, number][][] = [];
     let lat = 0, lon = 0, sted = "", veg = "", vegnavn = "", km: number | null = null;
@@ -112,7 +128,8 @@ export function tolk(xml: string, nowMs = Date.now()): Melding[] {
       const enums = all(r, /<ns12:\w+Type>(\w+)<\/ns12:\w+Type>/g);
       const kom = all(r, /<ns12:comment><values><value[^>]*>([^<]*)<\/value>/g).flatMap(x => x.split("|")).map(x => x.trim()).filter(Boolean);
       kom.forEach(k => { if (!tekster.includes(k)) tekster.push(k) });
-      const k = klassifiser(type, enums, kom.join(" "));
+      const k = klassifiser(type, enums, kom.join(" "), /forVehiclesWithCharacteristicsOf/.test(r));
+      kandidater.push({ k, p: perioder(r) });
       if (KAT[k] < KAT[best]) best = k;
       if (ts0 != null) start = start == null ? ts0 : Math.min(start, ts0);
       if (ts1 != null) slutt = slutt == null ? ts1 : Math.max(slutt, ts1);
@@ -139,7 +156,8 @@ export function tolk(xml: string, nowMs = Date.now()): Melding[] {
     if (!lat && geom.length) { [lat, lon] = geom[0][Math.floor(geom[0].length / 2)] }
     if (!(lat >= MIN_LAT) && !NORD_FYLKER.has(fylke)) continue;
     out.push({ id, kat: best, veg, vegnavn, sted, tekst: tekster.slice(0, 6).join(" "), start: start != null ? new Date(start).toISOString() : null,
-      slutt: slutt != null ? new Date(slutt).toISOString() : null, endret: endret || null, lat, lon, geom, km, fylke });
+      slutt: slutt != null ? new Date(slutt).toISOString() : null, endret: endret || null, lat, lon, geom, km, fylke,
+      perioder: (() => { const b = kandidater.filter(x => x.k === best); return b.some(x => !x.p.length) ? null : b.flatMap(x => x.p).slice(0, 20) })() });
   }
   out.sort((a, b) => KAT[a.kat] - KAT[b.kat] || (b.endret ?? "").localeCompare(a.endret ?? ""));
   return out;
