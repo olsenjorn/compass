@@ -394,7 +394,7 @@ let map, tiles, komLayer, custLayer, chargeLayer, labelLayer, lastBounds = null,
 function initMap() {
   if (map) return;
   const O = OMRAADER[mittOmraade()] || OMRAADER.nord;
-  map = L.map("map", { zoomSnap: .25, preferCanvas: true, minZoom: 4, zoomControl: false }).setView(O.senter, O.zoom);
+  map = L.map("map", { zoomSnap: .25, preferCanvas: true, minZoom: 4, maxZoom: 18, zoomControl: false }).setView(O.senter, O.zoom);
   L.control.zoom({ position: "bottomright" }).addTo(map);
   map.attributionControl.setPrefix(false);
   tiles = L.tileLayer("https://cache.kartverket.no/v1/wmts/1.0.0/topograatone/default/webmercator/{z}/{y}/{x}.png",
