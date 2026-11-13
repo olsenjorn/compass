@@ -407,7 +407,25 @@ function initMap() {
       tiles.bringToBack();
     }
   });
-  custLayer = L.layerGroup().addTo(map); chargeLayer = L.layerGroup(); labelLayer = L.layerGroup();
+  // Kundene grupperes etter avstand på skjermen; gruppene deles opp når man zoomer inn.
+  // Kunder på nøyaktig samme sted (samme bygg) spres i en vifte når man klikker på gruppen.
+  custLayer = L.markerClusterGroup({
+    maxClusterRadius: z => z >= 14 ? 22 : z >= 11 ? 34 : 46,
+    showCoverageOnHover: false, spiderfyOnMaxZoom: true, zoomToBoundsOnClick: true,
+    spiderfyDistanceMultiplier: 1.8, chunkedLoading: true, removeOutsideVisibleBounds: true,
+    iconCreateFunction: cl => {
+      const n = cl.getChildCount(), sz = Math.min(44, 22 + Math.sqrt(n) * 4);
+      const b = cl.getBounds(), samme = b.getNorthEast().equals(b.getSouthWest());
+      return L.divIcon({ className: "", html: `<div class="stackicon${samme ? " samme" : ""}" style="width:${sz}px;height:${sz}px">${n}</div>`, iconSize: [sz, sz], iconAnchor: [sz / 2, sz / 2] });
+    }
+  }).addTo(map);
+  custLayer.on("clustermouseover", e => {
+    const ms = e.layer.getAllChildMarkers(), b = e.layer.getBounds(), samme = b.getNorthEast().equals(b.getSouthWest());
+    const navn = ms.slice(0, 6).map(m => esc(m.options.kkNavn || "")).join("<br>") + (ms.length > 6 ? `<br>… og ${ms.length - 6} til` : "");
+    e.layer.bindTooltip(`<b>${ms.length} ${samme ? "på samme adresse" : "kunder her"}</b> · klikk for å ${samme ? "spre dem ut" : "zoome inn"}<br>${navn}`, { direction: "top", sticky: false }).openTooltip();
+  });
+  custLayer.on("clustermouseout", e => e.layer.closeTooltip());
+  chargeLayer = L.layerGroup(); labelLayer = L.layerGroup();
   komLayer = L.geoJSON(GEO.kommuner, {
     style: komStyle,
     onEachFeature: (f, l) => l.bindTooltip(`${f.properties.kommunenavn} · ${GEO.regmap[f.properties.kommunenummer] || ""}`, { sticky: true, direction: "top", opacity: .9 })
@@ -432,28 +450,22 @@ function komStyle(f) {
 }
 function renderMap(arr, fit) {
   custLayer.clearLayers();
-  const groups = new Map();
-  arr.forEach(c => { if (c.lat == null) return; const key = (+c.lat).toFixed(4) + "," + (+c.lon).toFixed(4); (groups.get(key) || groups.set(key, []).get(key)).push(c) });
-  const pts = [];
-  groups.forEach(list => {
-    const c0 = list[0], ll = [c0.lat, c0.lon]; pts.push(ll);
+  const pts = [], ms = [];
+  arr.forEach(c => {
+    if (c.lat == null) return;
+    const ll = [+c.lat, +c.lon]; pts.push(ll);
     let m;
-    if (list.length === 1 && c0.pro) {
-      m = L.marker(ll, { icon: L.divIcon({ className: "", html: `<div class="prosicon" style="background:${css(c0.pro === "tak" ? "--pros-tak" : "--pros-bv")}"></div>`, iconSize: [14, 14], iconAnchor: [7, 7] }) });
-      m.bindTooltip(`${esc(c0.n)} · ${esc(PLABEL[c0.pro])}${c0.oms != null ? " · " + mnok(c0.oms) : ""}`, { direction: "top" });
-      m.on("click", () => pickCustomer(c0.k));
-    } else if (list.length === 1) {
-      m = L.circleMarker(ll, { radius: { A: 10, B: 8.5, C: 7, D: 5.5 }[c0.s] || 6, color: "#fff", weight: 1.5, fillColor: css(c0.kat === "Profil" ? "--profil" : "--vent"), fillOpacity: .95, bubblingMouseEvents: false });
-      m.bindTooltip(`${esc(c0.n)} · ${krK(c0.t)}`, { direction: "top" });
-      m.on("click", () => pickCustomer(c0.k));
+    if (c.pro) {
+      m = L.marker(ll, { kkNavn: c.n, icon: L.divIcon({ className: "", html: `<div class="prosicon" style="background:${css(c.pro === "tak" ? "--pros-tak" : "--pros-bv")}"></div>`, iconSize: [14, 14], iconAnchor: [7, 7] }) });
+      m.bindTooltip(`${esc(c.n)} · ${esc(PLABEL[c.pro])}${c.oms != null ? " · " + mnok(c.oms) : ""}`, { direction: "top" });
     } else {
-      const sz = Math.min(44, 20 + Math.sqrt(list.length) * 4);
-      m = L.marker(ll, { icon: L.divIcon({ className: "", html: `<div class="stackicon" style="width:${sz}px;height:${sz}px">${list.length}</div>`, iconSize: [sz, sz], iconAnchor: [sz / 2, sz / 2] }) });
-      const s = list.slice().sort((a, b) => b.t - a.t);
-      m.bindPopup(`<div class="pop"><h4>${esc(c0.ps)} · ${list.length} ${c0.pro ? "prospekter" : "kunder"}</h4>${s.map(c => c.pro ? `<button type="button" data-k="${esc(c.k)}">${esc(c.n)} <span class="mut">· ${esc(PLABEL[c.pro])}${c.oms != null ? " · " + mnok(c.oms) : ""}</span></button>` : `<button type="button" data-k="${esc(c.k)}"><span class="kat ${esc(c.kat)}"></span>${esc(c.n)} <span class="mut">· ${esc(c.s)} · ${krK(c.t)}</span></button>`).join("")}</div>`, { maxWidth: 300 });
+      m = L.circleMarker(ll, { kkNavn: c.n, radius: { A: 10, B: 8.5, C: 7, D: 5.5 }[c.s] || 6, color: "#fff", weight: 1.5, fillColor: css(c.kat === "Profil" ? "--profil" : "--vent"), fillOpacity: .95, bubblingMouseEvents: false });
+      m.bindTooltip(`${esc(c.n)} · ${krK(c.t)}${c.pr === "poststed" ? " · plassert på poststed" : ""}`, { direction: "top" });
     }
-    m.addTo(custLayer);
+    m.on("click", () => pickCustomer(c.k));
+    ms.push(m);
   });
+  custLayer.addLayers(ms);
   $("sPin").textContent = nf.format(arr.filter(c => c.lat != null).length);
   if (fit && pts.length) {
     // Hold kartet på hovedområdet (ikke zoom ut for enkeltkunder i Oslo eller på Svalbard)

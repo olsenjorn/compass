@@ -15,6 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&display=swap">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
 <style>
 *,*::before,*::after{box-sizing:border-box}
 body{margin:0}
@@ -101,7 +102,9 @@ label.f select,label.f input{font-size:14px;text-transform:none;letter-spacing:0
 .legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:-1px}
 .legend .note{color:var(--muted);max-width:220px}
 .rlabel{font:600 12px var(--f-display);text-transform:uppercase;letter-spacing:.1em;color:var(--muted);white-space:nowrap;text-shadow:0 0 3px var(--land),0 0 3px var(--land);pointer-events:none}
-.stackicon{display:grid;place-items:center;border-radius:50%;font:700 12px var(--f-display);color:var(--panel);background:var(--stack);border:2px solid var(--panel);box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.stackicon{display:grid;place-items:center;border-radius:50%;font:700 12px var(--f-display);color:var(--panel);background:var(--stack);border:2px solid var(--panel);box-shadow:0 1px 3px rgba(0,0,0,.3);cursor:pointer}
+.stackicon.samme{outline:2px dashed var(--stack);outline-offset:2px}
+.leaflet-cluster-spider-leg{stroke:var(--stack);stroke-opacity:.7}
 .leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--panel);color:var(--ink)}
 .leaflet-popup-content{margin:10px 12px;font-size:13px;max-height:260px;overflow:auto;min-width:200px}
 .pop h4{margin:0 0 6px;font:600 15px var(--f-display)}
@@ -685,19 +688,20 @@ body.planning .legend{display:none}
   </form>
 </div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=20261113a"></script>
-<script src="app.js?v=20261113a"></script>
-<script src="adresser.js?v=20261113a"></script>
-<script src="planner.js?v=20261113a"></script>
-<script src="calendar.js?v=20261113a"></script>
-<script src="invitasjoner.js?v=20261113a"></script>
-<script src="booking.js?v=20261113a"></script>
-<script src="profil.js?v=20261113a"></script>
-<script src="ferger.js?v=20261113a"></script>
-<script src="avdelinger.js?v=20261113a"></script>
-<script src="lunsj.js?v=20261113a"></script>
-<script src="kundedata.js?v=20261113a"></script>
-<script src="vegmeldinger.js?v=20261113a"></script>
+<script src="config.js?v=20261113b"></script>
+<script src="app.js?v=20261113b"></script>
+<script src="adresser.js?v=20261113b"></script>
+<script src="planner.js?v=20261113b"></script>
+<script src="calendar.js?v=20261113b"></script>
+<script src="invitasjoner.js?v=20261113b"></script>
+<script src="booking.js?v=20261113b"></script>
+<script src="profil.js?v=20261113b"></script>
+<script src="ferger.js?v=20261113b"></script>
+<script src="avdelinger.js?v=20261113b"></script>
+<script src="lunsj.js?v=20261113b"></script>
+<script src="kundedata.js?v=20261113b"></script>
+<script src="vegmeldinger.js?v=20261113b"></script>
 </body>
 </html>
