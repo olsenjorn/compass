@@ -12,7 +12,7 @@ const CORS = {
 };
 const URL_SIT = "https://datex-server-get-v3-1.atlas.vegvesen.no/datexapi/GetSituation/pullsnapshotdata";
 const MAX_AGE_MS = 5 * 60 * 1000;
-const NORD_FYLKER = new Set(["18", "55", "56"]); // Nordland, Troms, Finnmark
+const NORD_FYLKER = new Set(["18", "55", "56", "11"]); // Nordland, Troms, Finnmark + Rogaland
 const MIN_LAT = 64.9;
 const FREMOVER_MS = 21 * 864e5; // ta med planlagte meldinger som starter innen tre uker
 

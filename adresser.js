@@ -5,7 +5,8 @@ const BRREG = "https://data.brreg.no/enhetsregisteret/api";
 const GEO_API = "https://ws.geonorge.no/adresser/v1/sok";
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]));
-const NORTH = k => /^(18|55|56|21)/.test(String(k || ""));
+// Ligger kommunen i kundens salgsområde? (nord: Nordland/Troms/Finnmark/Svalbard, rogaland: Rogaland)
+const IOMR = (k, c) => (c && c.om === "rogaland" ? /^11/ : /^(18|55|56|21)/).test(String(k || ""));
 const STOP = new Set(["as", "asa", "a/s", "ans", "da", "enk", "ba", "sa", "nuf", "avd", "avdeling", "kontant", "inaktiv", "firma", "slettet", "og", "&", "-"]);
 
 function cleanName(n) {
@@ -71,8 +72,8 @@ function score(c, cand, nm) {
     const av = nm.avd.toLowerCase();
     if (cand.poststed.toLowerCase().includes(av) || cand.kommune.includes(av)) { p += .35; placeHit = true }
   }
-  if (NORTH(cand.kommunenr)) p += .1;
-  else if (c.ps && c.r && c.r !== "Utenfor Nord-Norge") p -= .25;
+  if (IOMR(cand.kommunenr, c)) p += .1;
+  else if (c.ps && c.r && !/^Utenfor /.test(c.r)) p -= .25;
   if (cand.type === "underenhet") p += .05;
   if (!cand.adresse) p -= .3;
   return { total: s + p, s, placeHit };
@@ -106,8 +107,8 @@ async function lookup(c) {
   const best = cands[0], second = cands[1];
   const tie = second && Math.abs(second.sc.total - best.sc.total) < .02 && second.adresse !== best.adresse;
   let sikkerhet = "lav";
-  if (best.sc.s >= .99 && (best.sc.placeHit || (!c.ps && NORTH(best.kommunenr) && !tie))) sikkerhet = "høy";
-  else if (best.sc.s >= .66 && (best.sc.placeHit || (!c.ps && NORTH(best.kommunenr))) && !tie) sikkerhet = "middels";
+  if (best.sc.s >= .99 && (best.sc.placeHit || (!c.ps && IOMR(best.kommunenr, c) && !tie))) sikkerhet = "høy";
+  else if (best.sc.s >= .66 && (best.sc.placeHit || (!c.ps && IOMR(best.kommunenr, c))) && !tie) sikkerhet = "middels";
   if (best.sc.s < .5) return { c, status: "ingen", best };
   const g = await geocode(best.adresse, best.postnr, best.kommunenr);
   const KK = window.KK;
@@ -122,7 +123,7 @@ async function lookup(c) {
     c, status: "treff", best, sikkerhet, precise,
     row: {
       kundenr: c.k, adresse: (g && g.adresse) || best.adresse || "(ingen gateadresse)", postnr: (g && g.postnr) || best.postnr,
-      poststed: (g && g.poststed) || best.poststed, kommunenr, region: KK.GEO.regmap[kommunenr] || "Utenfor Nord-Norge",
+      poststed: (g && g.poststed) || best.poststed, kommunenr, region: KK.GEO.regmap[kommunenr] || (KK.utenfor ? KK.utenfor(c.om) : "Utenfor Nord-Norge"),
       lat, lon, orgnr: best.orgnr, kilde: best.type === "underenhet" ? "Enhetsregisteret (avdeling)" : "Enhetsregisteret", sikkerhet
     }
   };

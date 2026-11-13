@@ -17,11 +17,19 @@ const FLYPLASSER = [
   ["ALF", "Alta lufthavn", 69.9761, 23.3717], ["HFT", "Hammerfest lufthavn", 70.6797, 23.6686], ["LKL", "Lakselv lufthavn", 70.0688, 24.9735],
   ["KKN", "Kirkenes lufthavn", 69.7258, 29.8913], ["VDS", "Vadsø lufthavn", 70.0653, 29.8447], ["MQN", "Mo i Rana lufthavn", 66.3639, 14.3014],
   ["MJF", "Mosjøen lufthavn", 65.784, 13.2149], ["SSJ", "Sandnessjøen lufthavn", 65.9568, 12.4689], ["BNN", "Brønnøysund lufthavn", 65.4611, 12.2175],
-  ["LYR", "Svalbard lufthavn", 78.2461, 15.4656]
+  ["LYR", "Svalbard lufthavn", 78.2461, 15.4656],
+  ["SVG", "Stavanger lufthavn Sola", 58.8767, 5.6378], ["HAU", "Haugesund lufthavn Karmøy", 59.3453, 5.2084]
 ];
-const DEFAULT_HOME = "Eidhaugsvingen 6, 9105 Kvaløya";
+const JORN_HOME = "Eidhaugsvingen 6, 9105 Kvaløya";
 const prof = () => (window.KKProfil && window.KKProfil.p) || {};
-const homeOf = () => { const h = prof().hjem; return h && h.lat != null ? { adresse: h.adresse, lat: h.lat, lon: h.lon } : homeOf() };
+// Hjemmeadresse fra profilen; ellers sist brukte hjem, ellers sentrum i brukerens område
+const homeOf = () => {
+  const h = prof().hjem; if (h && h.lat != null) return { adresse: h.adresse, lat: h.lat, lon: h.lon };
+  const s = store.get("kk_home", null); if (s && s.lat != null) return s;
+  const K = window.KK, O = K && K.OMRAADER && K.OMRAADER[K.mittOmraade()];
+  return O ? { ...O.hjem } : { adresse: "Tromsø sentrum", lat: 69.6496, lon: 18.956 };
+};
+const DEFAULT_HOME_TXT = () => (me().epost === "jorn.winge@lindab.com" ? JORN_HOME : homeOf().adresse);
 const PAUSE_ETTER = 240, PAUSE_MIN = 30;           // 30 min pause per påbegynte 4 timer sammenhengende kjøring (4 t, 8 t …)
 const FLY_BUFFER = { leiebil: 20, taxi: 10 };
 const FLY_RETUR = { leiebil: 60, taxi: 45 }; // være på flyplassen så lenge før avgang (levere leiebil / innsjekk)
@@ -135,7 +143,7 @@ const kunde = k => KK().DATA.find(c => c.k === k);
 /* ---------- beregning ---------- */
 async function ensureHome(day) {
   if (day.start.type === "hjem" && (day.start.lat == null)) {
-    const g = await window.KKAdr.geocodeFree(day.start.navn || DEFAULT_HOME).catch(() => null);
+    const g = await window.KKAdr.geocodeFree(day.start.navn || DEFAULT_HOME_TXT()).catch(() => null);
     if (g) { day.start.lat = g.lat; day.start.lon = g.lon; day.start.navn = `${g.adresse}, ${g.postnr} ${g.poststed}`; store.set("kk_home", { adresse: day.start.navn, lat: g.lat, lon: g.lon }) }
   }
 }

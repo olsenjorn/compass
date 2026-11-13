@@ -8,6 +8,7 @@ const XLSX_URL = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.m
 const COLS = [
   { f: "kundenr", h: "Kundenummer", req: true, a: ["kundenr", "kundenummer", "kunde nr", "kundenr."] },
   { f: "navn", h: "Kundenavn", req: true, a: ["kundenavn", "navn", "firmanavn", "kunde"] },
+  { f: "omraade", h: "Område", a: ["område", "omrade", "omraade", "salgsområde"] },
   { f: "kategori", h: "Kategori", a: ["kategori", "kundekategori"] },
   { f: "eier", h: "Eier", a: ["eier", "ansvarlig", "selger", "kundeansvarlig"] },
   { f: "status", h: "Status", a: ["status", "kundestatus"] },
@@ -24,10 +25,15 @@ const COLS = [
   { f: "vbl", h: "VBL-medlem", info: true, bool: true, a: ["vbl", "vbl-medlem", "vbl medlem"] },
   { f: "byggvare", h: "Byggvareforhandler", info: true, bool: true, a: ["byggvare", "byggvareforhandler"] }
 ];
-const KUNDE_F = ["kundenr", "navn", "kategori", "eier", "oms_ventilasjon", "oms_profil", "oms_total", "segment", "poststed", "poststed_kilde", "kommune", "region", "lat", "lon", "presisjon", "besoksadresse", "postnr", "bransje", "status"];
-const VIS = { navn: "Navn", kategori: "Kategori", eier: "Eier", status: "Status", bransje: "Bransje", oms_ventilasjon: "Oms. ventilasjon", oms_profil: "Oms. profil", oms_total: "Oms. total", segment: "Segment", besoksadresse: "Besøksadresse", postnr: "Postnr", poststed: "Poststed", region: "Region", kjede: "Kjede", konstellasjon: "Konstellasjon", vbl: "VBL", byggvare: "Byggvare" };
+const KUNDE_F = ["kundenr", "omraade", "navn", "kategori", "eier", "oms_ventilasjon", "oms_profil", "oms_total", "segment", "poststed", "poststed_kilde", "kommune", "region", "lat", "lon", "presisjon", "besoksadresse", "postnr", "bransje", "status"];
+const VIS = { omraade: "Område", navn: "Navn", kategori: "Kategori", eier: "Eier", status: "Status", bransje: "Bransje", oms_ventilasjon: "Oms. ventilasjon", oms_profil: "Oms. profil", oms_total: "Oms. total", segment: "Segment", besoksadresse: "Besøksadresse", postnr: "Postnr", poststed: "Poststed", region: "Region", kjede: "Kjede", konstellasjon: "Konstellasjon", vbl: "VBL", byggvare: "Byggvare" };
 const KATEGORIER = ["Profil", "Ventilasjon"];
 const STATUSER = ["Aktiv kunde", "Prospekt", "Tidligere kunde"];
+const omNavn = om => { const O = (window.KK && window.KK.OMRAADER) || {}; return (O[om] || {}).navn || om || "" };
+function omKey(v) {
+  const O = (window.KK && window.KK.OMRAADER) || {}, n = norm(v);
+  return Object.keys(O).find(k => k === n || norm(O[k].navn) === n || (n.length > 3 && norm(O[k].navn).startsWith(n))) || null;
+}
 const SEG = t => t >= 1e6 ? "A" : t >= 25e4 ? "B" : t >= 5e4 ? "C" : "D";
 
 let plan = null, busy = false, logg = [], fane = "endret";
@@ -54,7 +60,7 @@ function bool(v) {
   return { ok: false };
 }
 const fmtKr = v => v == null ? "" : Math.round(v).toLocaleString("nb-NO");
-const dbOf = c => ({ kundenr: c.k, navn: c.n, kategori: c.kat || null, eier: c.e || null, oms_ventilasjon: c.v || 0, oms_profil: c.p || 0, oms_total: c.t || 0, segment: c.s || null,
+const dbOf = c => ({ kundenr: c.k, omraade: c.om || "nord", navn: c.n, kategori: c.kat || null, eier: c.e || null, oms_ventilasjon: c.v || 0, oms_profil: c.p || 0, oms_total: c.t || 0, segment: c.s || null,
   poststed: c.ps || null, poststed_kilde: c.src || null, kommune: c.kom || null, region: c.r || null, lat: c.lat ?? null, lon: c.lon ?? null, presisjon: c.pr || null,
   besoksadresse: c.adr || null, postnr: c.pnr || null, bransje: c.br || null, status: c.st || null });
 const ws_ = v => typeof v === "string" ? v.replace(/\s+/g, " ").trim() : v;
@@ -68,12 +74,12 @@ async function lastNed(tom) {
     const X = window.XLSX, INFO = KK.INFO || {};
     const rows = tom ? [] : KK.RAW.slice().sort((a, b) => (b.t || 0) - (a.t || 0)).map(c => {
       const i = INFO[c.k] || {};
-      return [c.k, c.n, c.kat || "", c.e || "", c.st || "", c.br || "", c.v || 0, c.p || 0, c.t || 0, c.s || "", c.adr || "", c.pnr || "", c.ps || "", i.kjede || "", i.konstellasjon || "", i.vbl ? "Ja" : "Nei", i.byggvare ? "Ja" : "Nei"];
+      return [c.k, c.n, omNavn(c.om), c.kat || "", c.e || "", c.st || "", c.br || "", c.v || 0, c.p || 0, c.t || 0, c.s || "", c.adr || "", c.pnr || "", c.ps || "", i.kjede || "", i.konstellasjon || "", i.vbl ? "Ja" : "Nei", i.byggvare ? "Ja" : "Nei"];
     });
     const ws = X.utils.aoa_to_sheet([COLS.map(c => c.req ? c.h + " *" : c.h), ...rows]);
     ws["!cols"] = COLS.map(c => ({ wch: c.f === "navn" ? 38 : c.f === "besoksadresse" ? 28 : c.num ? 18 : c.f === "kundenr" ? 13 : 15 }));
     ws["!autofilter"] = { ref: X.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(rows.length, 1), c: COLS.length - 1 } }) };
-    for (let r = 1; r <= rows.length; r++) [6, 7, 8].forEach(cn => { const a = X.utils.encode_cell({ r, c: cn }); if (ws[a]) ws[a].z = "#,##0" });
+    for (let r = 1; r <= rows.length; r++) [7, 8, 9].forEach(cn => { const a = X.utils.encode_cell({ r, c: cn }); if (ws[a]) ws[a].z = "#,##0" });
     const eiere = [...new Set(KK.RAW.map(c => c.e).filter(Boolean))].sort();
     const veil = [
       ["Kundekart Nord – vedlikehold av kundedata"], [""],
@@ -84,6 +90,7 @@ async function lastNed(tom) {
       ["Kolonner"],
       ["Kundenummer *", "Påkrevd. Brukes til å kjenne igjen kunden. Ikke endre nummeret på en eksisterende kunde."],
       ["Kundenavn *", "Påkrevd."],
+      ["Område", "Salgsområdet kunden hører til: " + Object.values(KK.OMRAADER || {}).map(o => o.navn).join(" eller ") + ". Selgere ser bare kundene i sitt område. Står den tom, beholdes området (nye kunder får området du velger ved opplasting)."],
       ["Kategori", "Profil eller Ventilasjon."],
       ["Eier", "Selgeren som har kunden, f.eks. " + (eiere.slice(0, 3).join(", ") || "Jørn") + "."],
       ["Status", STATUSER.join(", ") + "."],
@@ -128,8 +135,9 @@ async function lesFil(file) {
   return { ark: name, map, data: rows.slice(hi + 1), hi };
 }
 
-function lagPlan(fil, filnavn) {
+function lagPlan(fil, filnavn, nyOm) {
   const KK = window.KK, GEO = KK.GEO, INFO = KK.INFO || {};
+  nyOm = nyOm || (KK.mittOmraade ? KK.mittOmraade() : "nord");
   const gamle = new Map(KK.RAW.map(c => [c.k, c]));
   const eiere = new Set(KK.RAW.map(c => c.e).filter(Boolean));
   const psKey = {}; Object.keys(GEO.poststeder).forEach(p => psKey[p.toLowerCase()] = p);
@@ -144,10 +152,12 @@ function lagPlan(fil, filnavn) {
     if (sett.has(k)) { feil.push(`Rad ${lin}: kundenummer ${k} står flere ganger i fila.`); return }
     sett.add(k);
     const g = gamle.get(k), old = g ? dbOf(g) : null;
-    const ny = Object.assign(old ? { ...old } : { kundenr: k, navn: null, kategori: null, eier: null, oms_ventilasjon: 0, oms_profil: 0, oms_total: 0, segment: null, poststed: null, poststed_kilde: null, kommune: null, region: null, lat: null, lon: null, presisjon: null, besoksadresse: null, postnr: null, bransje: null, status: "Aktiv kunde" }), adv = [];
+    const ny = Object.assign(old ? { ...old } : { kundenr: k, omraade: nyOm, navn: null, kategori: null, eier: null, oms_ventilasjon: 0, oms_profil: 0, oms_total: 0, segment: null, poststed: null, poststed_kilde: null, kommune: null, region: null, lat: null, lon: null, presisjon: null, besoksadresse: null, postnr: null, bransje: null, status: "Aktiv kunde" }), adv = [];
     const navn = txt(cell("navn"));
     if (!navn) { feil.push(`Rad ${lin} (${k}): mangler kundenavn.`); return }
     ny.navn = navn;
+    if (has("omraade")) { const v = txt(cell("omraade")); if (v) { const key = omKey(v); if (!key) { feil.push(`Rad ${lin} (${k}): ukjent område «${v}». Bruk ${Object.values(KK.OMRAADER || {}).map(o => o.navn).join(" eller ")}.`); return } ny.omraade = key } }
+    if (!old && !(has("omraade") && txt(cell("omraade")))) ny._nyOm = true;
     ["eier", "bransje", "besoksadresse"].forEach(f => { if (has(f)) ny[f] = txt(cell(f)) });
     if (has("postnr")) { const p = txt(cell("postnr")); ny.postnr = p && /^\d{1,4}$/.test(p) ? p.padStart(4, "0") : p }
     if (has("kategori")) { const v = txt(cell("kategori")); const hit = v && KATEGORIER.find(x => x.toLowerCase() === v.toLowerCase()); ny.kategori = hit || v; if (v && !hit) adv.push(`ukjent kategori «${v}»`) }
@@ -177,7 +187,7 @@ function lagPlan(fil, filnavn) {
       if (endret) {
         const hit = ps && psKey[ps.toLowerCase()];
         if (hit) { const [la, lo, reg] = GEO.poststeder[hit]; Object.assign(ny, { poststed: hit, lat: la, lon: lo, region: reg, kommune: null, presisjon: "poststed", poststed_kilde: "import" }) }
-        else { Object.assign(ny, { poststed: ps, lat: null, lon: null, region: null, kommune: null, presisjon: null, poststed_kilde: ps ? "import" : null }); if (ps) adv.push(`fant ikke poststedet «${ps}» – vises ikke på kartet`); else adv.push("mangler poststed – vises ikke på kartet") }
+        else { Object.assign(ny, { poststed: ps, lat: null, lon: null, region: KK.utenfor ? KK.utenfor(ny.omraade) : null, kommune: null, presisjon: null, poststed_kilde: ps ? "import" : null }); if (ps) adv.push(`fant ikke poststedet «${ps}» – vises ikke på kartet`); else adv.push("mangler poststed – vises ikke på kartet") }
       }
     }
     if (!old && !has("poststed")) adv.push("mangler poststed – vises ikke på kartet");
@@ -205,11 +215,11 @@ function lagPlan(fil, filnavn) {
   const advarsler = [];
   if (sumGml > 0 && sumNy > 0) { const f = sumNy / sumGml; if (f > 20 || f < .05) advarsler.push(`Omsetningen i fila er ${f > 1 ? Math.round(f) + " ganger høyere" : Math.round(1 / f) + " ganger lavere"} enn i dag. Sjekk at tallene er i hele kroner (ikke tusen).`) }
   if (sett.size && mangler.length > KK.RAW.length * .5) advarsler.push(`${mangler.length} av ${KK.RAW.length} kunder mangler i fila. Er det riktig fil?`);
-  return { filnavn, ark: fil.ark, kolonner: COLS.filter(c => has(c.f)).map(c => c.h), feil, advarsler, rader, kunder, info, adr, mangler, slett: false, slaOpp: true, antall: sett.size };
+  return { nyOm, filnavn, ark: fil.ark, kolonner: COLS.filter(c => has(c.f)).map(c => c.h), feil, advarsler, rader, kunder, info, adr, mangler, slett: false, slaOpp: true, antall: sett.size };
 }
 
 /* ---------- visning ---------- */
-const vis = (f, v) => v == null || v === "" ? "–" : typeof v === "boolean" ? (v ? "Ja" : "Nei") : /^oms_/.test(f) ? fmtKr(v) + " kr" : String(v);
+const vis = (f, v) => f === "omraade" ? omNavn(v) : v == null || v === "" ? "–" : typeof v === "boolean" ? (v ? "Ja" : "Nei") : /^oms_/.test(f) ? fmtKr(v) + " kr" : String(v);
 function render() {
   const B = $("kdBody"); if (!B) return;
   const KK = window.KK;
@@ -248,6 +258,7 @@ function render() {
   B.querySelectorAll("[data-angre]").forEach(b => b.onclick = () => angre(+b.dataset.angre, b));
   if ($("kdSlett")) $("kdSlett").onchange = e => { plan.slett = e.target.checked; render() };
   if ($("kdSla")) $("kdSla").onchange = e => { plan.slaOpp = e.target.checked };
+  if ($("kdOm")) $("kdOm").onchange = e => { plan.nyOm = e.target.value; plan.rader.forEach(r => { if (r.ny._nyOm) r.ny.omraade = plan.nyOm }) };
   if ($("kdLagre")) $("kdLagre").onclick = lagre;
   if ($("kdAvbryt")) $("kdAvbryt").onclick = () => { plan = null; render() };
 }
@@ -274,11 +285,12 @@ function planHtml(p, tell) {
       </div>` : ""}
     ${liste ? (liste.length ? `<div class="adrtable kdtab"><table><thead><tr><th>Kunde</th><th>${fane === "ny" ? "Opplysninger" : "Endring"}</th></tr></thead><tbody>
       ${liste.slice(0, 400).map(r => `<tr><td><b>${esc(r.navn)}</b><div class="mut">${esc(r.k)}${r.type === "ny" ? " · ny" : ""}</div></td><td>
-        ${r.type === "ny" ? `<div>${esc([r.ny.kategori, r.ny.eier, r.ny.poststed, r.ny.status].filter(Boolean).join(" · "))}</div><div class="mut">Total ${fmtKr(r.ny.oms_total)} kr · segment ${esc(r.ny.segment)}</div>`
+        ${r.type === "ny" ? `<div>${esc([omNavn(r.ny.omraade), r.ny.kategori, r.ny.eier, r.ny.poststed, r.ny.status].filter(Boolean).join(" · "))}</div><div class="mut">Total ${fmtKr(r.ny.oms_total)} kr · segment ${esc(r.ny.segment)}</div>`
           : r.endringer.map(([f, a, b]) => `<div class="kdchg"><span class="mut">${esc(VIS[f] || f)}:</span> <s>${esc(vis(f, a))}</s> → <b>${esc(vis(f, b))}</b></div>`).join("")}
         ${r.adv.map(a => `<div class="kdwarn sm">⚠ ${esc(a)}</div>`).join("")}</td></tr>`).join("")}
       </tbody></table>${liste.length > 400 ? `<p class="mut">Viser 400 av ${liste.length}.</p>` : ""}</div>` : '<p class="mut">Ingen.</p>') : ""}
     <div class="kdopts">
+      ${p.rader.some(r => r.type === "ny" && r.ny._nyOm) && Object.keys(window.KK.OMRAADER || {}).length > 1 ? `<label class="kdcheck">Nye kunder uten område legges i <select id="kdOm">${Object.entries(window.KK.OMRAADER).map(([k, o]) => `<option value="${k}" ${k === p.nyOm ? "selected" : ""}>${esc(o.navn)}</option>`).join("")}</select></label>` : ""}
       ${p.mangler.length ? `<label class="kdcheck"><input type="checkbox" id="kdSlett" ${p.slett ? "checked" : ""}> Slett de ${p.mangler.length} kundene som ikke er i fila <span class="mut">(også adresser, rettelser og kjede-info for dem)</span></label>` : ""}
       ${p.adr.length ? `<label class="kdcheck"><input type="checkbox" id="kdSla" ${p.slaOpp ? "checked" : ""}> Slå opp ${p.adr.length} nye eller endrede besøksadresser hos Kartverket <span class="mut">(gir presis plassering på kartet)</span></label>` : ""}
     </div>
@@ -294,14 +306,14 @@ function planHtml(p, tell) {
 async function lagre() {
   const KK = window.KK, p = plan; if (!p || busy) return;
   const msg = $("kdSaveMsg"); busy = true; $("kdLagre").disabled = true; msg.textContent = "Lagrer …";
-  const { data, error } = await KK.sb.rpc("importer_kunder", { p_kunder: p.kunder, p_info: p.info, p_slett: p.slett ? p.mangler.map(c => c.k) : [], p_filnavn: p.filnavn });
+  const { data, error } = await KK.sb.rpc("importer_kunder", { p_kunder: p.kunder.map(({ _nyOm, ...r }) => r), p_info: p.info, p_slett: p.slett ? p.mangler.map(c => c.k) : [], p_filnavn: p.filnavn });
   if (error) { busy = false; $("kdLagre").disabled = false; msg.textContent = "Kunne ikke lagre: " + error.message; return }
   let adrTxt = "";
   if (p.slaOpp && p.adr.length && window.KKAdr) {
     const rows = []; let i = 0, ikke = 0;
     const worker = async () => { while (i < p.adr.length) { const c = p.adr[i++]; msg.textContent = `Lagret. Slår opp adresser … ${Math.min(i, p.adr.length)} av ${p.adr.length}`;
       try { const g = await window.KKAdr.geocodeFree(`${c.besoksadresse}${c.postnr ? ", " + c.postnr : ""}${c.poststed ? " " + c.poststed : ""}`);
-        if (g) rows.push({ kundenr: c.kundenr, adresse: g.adresse, postnr: g.postnr, poststed: g.poststed, kommunenr: g.kommunenr, region: KK.GEO.regmap[g.kommunenr] || "Utenfor Nord-Norge", lat: g.lat, lon: g.lon, orgnr: (KK.ADR[c.kundenr] && KK.ADR[c.kundenr].orgnr) || null, kilde: "Import", sikkerhet: "manuell" }); else ikke++ } catch (e) { ikke++ } } };
+        if (g) rows.push({ kundenr: c.kundenr, adresse: g.adresse, postnr: g.postnr, poststed: g.poststed, kommunenr: g.kommunenr, region: KK.GEO.regmap[g.kommunenr] || KK.utenfor(c.omraade), lat: g.lat, lon: g.lon, orgnr: (KK.ADR[c.kundenr] && KK.ADR[c.kundenr].orgnr) || null, kilde: "Import", sikkerhet: "manuell" }); else ikke++ } catch (e) { ikke++ } } };
     await Promise.all([worker(), worker(), worker()]);
     for (let j = 0; j < rows.length; j += 100) { const { error: e2 } = await KK.sb.from("kunde_adresse").upsert(rows.slice(j, j + 100)); if (e2) { ikke += rows.length - j; break } }
     adrTxt = ` ${rows.length} adresser plassert${ikke ? `, ${ikke} ikke funnet hos Kartverket` : ""}.`;

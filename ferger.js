@@ -4,13 +4,14 @@
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const ENTUR = "https://api.entur.io/journey-planner/v3/graphql";
-const CACHE = "kk_fergeleier_v2", TTL = 7 * 864e5, ON = "kk_ferger_on";
+const CACHE = "kk_fergeleier_v3", TTL = 7 * 864e5, ON = "kk_ferger_on";
 const store = { get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v) } catch (e) { return d } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)) } catch (e) { } } };
 async function entur(query, variables) {
   const r = await fetch(ENTUR, { method: "POST", headers: { "Content-Type": "application/json", "ET-Client-Name": "lindab-kundekartnord" }, body: JSON.stringify({ query, variables }) });
   const j = await r.json(); if (j.errors) throw new Error(j.errors[0].message); return j.data;
 }
 const SVG = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M5 15h14l-2.2 4.2c-.2.5-.7.8-1.2.8H8.4c-.5 0-1-.3-1.2-.8L5 15zm3-6h8l1.5 5h-11L8 9zm2.5-4h3v3h-3V5z"/></svg>';
+const iRog = (la, lo) => la >= 58.0 && la <= 59.95 && lo >= 4.7 && lo <= 7.4; // salgsområde Rogaland
 const kai = n => String(n || "").replace(/\s*(ferjekai|fergekai|ferjeleie)\b/ig, "").trim();
 const pad = n => String(n).padStart(2, "0");
 const ymd = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -24,7 +25,7 @@ async function loadQuays() {
   const sp = {};
   d.lines.filter(l => /^(local|national|regional)CarFerry$/.test(l.transportSubmode) && !/Bergen\s*-\s*Kirkenes/i.test(l.name))
     .forEach(l => l.quays.forEach(q => {
-      const s = q.stopPlace; if (!s || s.latitude < 64.9 || /kystrutekai/i.test(s.name)) return;
+      const s = q.stopPlace; if (!s || !(s.latitude >= 64.9 || iRog(s.latitude, s.longitude)) || /kystrutekai/i.test(s.name)) return;
       const o = sp[s.id] || (sp[s.id] = { id: s.id, n: kai(s.name), a: s.latitude, o: s.longitude, l: [] });
       if (!o.l.includes(l.name)) o.l.push(l.name);
     }));
@@ -32,8 +33,9 @@ async function loadQuays() {
   // Kaier som finnes i Entur, men mangler i rutemønstrene (f.eks. Skutvik): legg til og finn linjer ut fra avganger
   try {
     const hv = (a, b, c, d) => { const R = 6371, t = x => x * Math.PI / 180, dl = t(c - a), dn = t(d - b); const h = Math.sin(dl / 2) ** 2 + Math.cos(t(a)) * Math.cos(t(c)) * Math.sin(dn / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)) };
-    const bb = await entur(`{ stopPlacesByBbox(minimumLatitude:64.9, maximumLatitude:71.4, minimumLongitude:10.5, maximumLongitude:31.5){ id name latitude longitude transportMode } }`);
-    const extra = bb.stopPlacesByBbox.filter(x => (x.transportMode || []).includes("water") && /ferjekai|fergekai|ferjeleie|fergeleie/i.test(x.name) && !/kystrutekai/i.test(x.name))
+    const bb = await entur(`{ n: stopPlacesByBbox(minimumLatitude:64.9, maximumLatitude:71.4, minimumLongitude:10.5, maximumLongitude:31.5){ id name latitude longitude transportMode }
+      r: stopPlacesByBbox(minimumLatitude:58.0, maximumLatitude:59.95, minimumLongitude:4.7, maximumLongitude:7.4){ id name latitude longitude transportMode } }`);
+    const extra = [...bb.n, ...bb.r].filter(x => (x.transportMode || []).includes("water") && /ferjekai|fergekai|ferjeleie|fergeleie/i.test(x.name) && !/kystrutekai/i.test(x.name))
       .filter(x => !list.some(q => hv(q.a, q.o, x.latitude, x.longitude) < 1.5));
     const seen = [];
     for (const x of extra) {

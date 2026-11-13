@@ -7,8 +7,14 @@ const sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseKey, {
   auth: { persistSession: true, autoRefreshToken: true, storageKey: "kk-auth" }
 });
 
-const REG_ORDER = ["Sør-Helgeland","Midt-Helgeland","Nord-Helgeland","Salten","Ofoten","Indre Lofoten","Ytre Lofoten","Vesterålen","Hålogaland","Indre Troms","Midt-Troms","Tromsøregionen","Nord-Troms","Vest-Finnmark","Midt-Finnmark","Indre Finnmark","Øst-Finnmark","Svalbard","Utenfor Nord-Norge"];
-const FYLKE = r => /Helgeland|Salten|Ofoten|Lofoten|Vesterålen/.test(r) ? "Nordland" : /Finnmark/.test(r) ? "Finnmark" : (r === "Svalbard" || r === "Utenfor Nord-Norge") ? "Annet" : "Troms";
+/* Salgsområder. Selgere ser kundene i sine områder (tilgang.omraader); admin/leder ser alt. */
+const OMRAADER = {
+  nord: { navn: "Nord-Norge", senter: [68.6, 18], zoom: 5.5, utenfor: "Utenfor Nord-Norge", hjem: { adresse: "Tromsø sentrum", lat: 69.6496, lon: 18.956 } },
+  rogaland: { navn: "Rogaland", senter: [58.95, 5.9], zoom: 8, utenfor: "Utenfor Rogaland", hjem: { adresse: "Stavanger sentrum", lat: 58.9699, lon: 5.7331 } }
+};
+const utenfor = om => (OMRAADER[om] || OMRAADER.nord).utenfor;
+const REG_ORDER = ["Sør-Helgeland","Midt-Helgeland","Nord-Helgeland","Salten","Ofoten","Indre Lofoten","Ytre Lofoten","Vesterålen","Hålogaland","Indre Troms","Midt-Troms","Tromsøregionen","Nord-Troms","Vest-Finnmark","Midt-Finnmark","Indre Finnmark","Øst-Finnmark","Svalbard","Utenfor Nord-Norge","Haugalandet","Ryfylke","Nord-Jæren","Jæren","Dalane","Utenfor Rogaland"];
+const FYLKE = r => /Helgeland|Salten|Ofoten|Lofoten|Vesterålen/.test(r) ? "Nordland" : /Finnmark/.test(r) ? "Finnmark" : /^(Haugalandet|Ryfylke|Nord-Jæren|Jæren|Dalane)$/.test(r) ? "Rogaland" : (r === "Svalbard" || /^Utenfor /.test(r) || !r) ? "Annet" : "Troms";
 
 const $ = id => document.getElementById(id);
 const store = {
@@ -28,7 +34,14 @@ let ADR = {};            // kundenr -> besøksadresse (kunde_adresse)
 let PROS = [];           // prospekter (ikke kunder): byggevarehus og takentreprenører
 let INFO = {};           // kundenr -> kjede, konstellasjon, vbl, byggvare (kunde_info)
 let DATA = [];
-let ME = null;           // {epost, navn, rolle}
+let ME = null;           // {epost, navn, rolle, omraader}
+// Området brukeren hører til: eneste område i tilgang, ellers området med flest synlige kunder
+function mittOmraade() {
+  const o = (ME && ME.omraader) || ["nord"];
+  if (o.length === 1 && !(ME && (ME.rolle === "admin" || ME.rolle === "leder"))) return o[0];
+  if (typeof RAW !== "undefined" && RAW && RAW.length) { const n = {}; RAW.forEach(c => n[c.om] = (n[c.om] || 0) + 1); return Object.keys(n).sort((a, b) => n[b] - n[a])[0] }
+  return o[0] || "nord";
+}
 let CHARGERS = store.get("kk_chargers", null);
 const st = { q: "", reg: new Set(), by: new Set(), eier: new Set(), kat: new Set(), seg: new Set(), kj: new Set(), ko: new Set(), flag: new Set(), sort: store.get("kk_sort", "reg"), sel: null };
 
@@ -154,7 +167,7 @@ async function start() {
       GEO = { kommuner, regmap, reglab, poststeder };
     }
     const [me, k, r, a, inf, pr] = await Promise.all([
-      sb.from("tilgang").select("epost,navn,rolle").maybeSingle(),
+      sb.from("tilgang").select("epost,navn,rolle,omraader").maybeSingle(),
       sb.from("kunder").select("*"),
       sb.from("sted_rettelse").select("*"),
       sb.from("kunde_adresse").select("*"),
@@ -199,7 +212,7 @@ sb.auth.onAuthStateChange((ev) => {
 function fromDb(c) {
   return { k: c.kundenr, n: c.navn, kat: c.kategori, e: c.eier, v: +c.oms_ventilasjon || 0, p: +c.oms_profil || 0, t: +c.oms_total || 0, s: c.segment,
     ps: c.poststed || "", src: c.poststed_kilde || "", kom: c.kommune || "", r: c.region || "", lat: c.lat, lon: c.lon, pr: c.presisjon || "",
-    adr: c.besoksadresse || "", pnr: c.postnr || "", br: c.bransje || "", st: c.status || "" };
+    adr: c.besoksadresse || "", pnr: c.postnr || "", br: c.bransje || "", st: c.status || "", om: c.omraade || "nord" };
 }
 const PTYPE = { byggevare: "bv", tak: "tak" };
 const PLABEL = { bv: "Byggevarehus", tak: "Takentreprenør" };
@@ -241,7 +254,7 @@ function optionsFor(k) {
   let items;
   if (k === "reg") {
     items = [];
-    ["Nordland", "Troms", "Finnmark", "Annet"].forEach(g => {
+    ["Nordland", "Troms", "Finnmark", "Rogaland", "Annet"].forEach(g => {
       const rs = REG_ORDER.filter(r => FYLKE(r) === g && cnt[r]);
       if (rs.length) { items.push({ group: g, values: rs }); rs.forEach(r => items.push({ value: r, label: r, n: cnt[r] })) }
     });
@@ -380,7 +393,8 @@ function renderList(arr) {
 let map, tiles, komLayer, custLayer, chargeLayer, labelLayer, lastBounds = null, tileFails = 0;
 function initMap() {
   if (map) return;
-  map = L.map("map", { zoomSnap: .25, preferCanvas: true, minZoom: 4, zoomControl: false }).setView([68.6, 18], 5.5);
+  const O = OMRAADER[mittOmraade()] || OMRAADER.nord;
+  map = L.map("map", { zoomSnap: .25, preferCanvas: true, minZoom: 4, zoomControl: false }).setView(O.senter, O.zoom);
   L.control.zoom({ position: "bottomright" }).addTo(map);
   map.attributionControl.setPrefix(false);
   tiles = L.tileLayer("https://cache.kartverket.no/v1/wmts/1.0.0/topograatone/default/webmercator/{z}/{y}/{x}.png",
@@ -442,8 +456,10 @@ function renderMap(arr, fit) {
   });
   $("sPin").textContent = nf.format(arr.filter(c => c.lat != null).length);
   if (fit && pts.length) {
-    const np = pts.filter(p => p[0] > 64.5 && p[0] < 72);
-    const b = L.latLngBounds(np.length && !st.reg.has("Utenfor Nord-Norge") && !st.reg.has("Svalbard") ? np : pts);
+    // Hold kartet på hovedområdet (ikke zoom ut for enkeltkunder i Oslo eller på Svalbard)
+    const O = OMRAADER[mittOmraade()] || OMRAADER.nord, inn = p => Math.abs(p[0] - O.senter[0]) < 6 && Math.abs(p[1] - O.senter[1]) < 14;
+    const np = pts.filter(inn);
+    const b = L.latLngBounds(np.length && ![...st.reg].some(r => /^Utenfor /.test(r) || r === "Svalbard") ? np : pts);
     lastBounds = [b.pad(.2), pts.length === 1 ? 11 : 11];
     if (map.getSize().x > 0) map.fitBounds(lastBounds[0], { maxZoom: lastBounds[1] });
   }
@@ -547,7 +563,7 @@ function select(k, pan = true) {
     try {
       const g = await window.KKAdr.geocodeFree(v);
       if (!g) { $("adrMsg").textContent = "Fant ikke adressen hos Kartverket. Skriv gate, nummer og postnummer."; return }
-      const row = { kundenr: c.k, adresse: g.adresse, postnr: g.postnr, poststed: g.poststed, kommunenr: g.kommunenr, region: GEO.regmap[g.kommunenr] || "Utenfor Nord-Norge", lat: g.lat, lon: g.lon, orgnr: c.orgnr || null, kilde: "Lagt inn manuelt", sikkerhet: "manuell" };
+      const row = { kundenr: c.k, adresse: g.adresse, postnr: g.postnr, poststed: g.poststed, kommunenr: g.kommunenr, region: GEO.regmap[g.kommunenr] || utenfor(c.om), lat: g.lat, lon: g.lon, orgnr: c.orgnr || null, kilde: "Lagt inn manuelt", sikkerhet: "manuell" };
       const { data, error } = await sb.from("kunde_adresse").upsert(row).select().single();
       if (error) { $("adrMsg").textContent = "Kunne ikke lagre: " + error.message; return }
       ADR[c.k] = data; refreshData(false); select(k, false);
@@ -557,7 +573,7 @@ function select(k, pan = true) {
     e.preventDefault();
     const v = $("fixIn").value.trim();
     const hit = Object.keys(GEO.poststeder).find(p => p.toLowerCase() === v.toLowerCase());
-    if (!hit) { $("fixMsg").textContent = "Fant ikke poststedet i Nord-Norge. Velg et sted fra lista."; return }
+    if (!hit) { $("fixMsg").textContent = "Fant ikke poststedet. Velg et sted fra lista, eller legg inn adressen over."; return }
     const [lat, lon, region] = GEO.poststeder[hit];
     $("fixMsg").textContent = "Lagrer …";
     const { data, error } = await sb.from("sted_rettelse").upsert({ kundenr: c.k, poststed: hit, lat, lon, region }).select().single();
@@ -655,7 +671,7 @@ function chargePanel(msg) {
   const canRefresh = ME && (ME.rolle === "admin" || ME.rolle === "leder");
   P.innerHTML = `<button type="button" class="x" id="cx" aria-label="Lukk">×</button>
   <h3>Ladestasjoner</h3>
-  ${CHARGERS ? `<div class="status">${nf.format(CHARGERS.list.length)} stasjoner i Nord-Norge${when ? `, oppdatert fra NOBIL ${when}` : ""}.</div>
+  ${CHARGERS ? `<div class="status">${nf.format(CHARGERS.list.length)} stasjoner i Nord-Norge og Rogaland${when ? `, oppdatert fra NOBIL ${when}` : ""}.</div>
     <label class="chk"><input type="checkbox" id="cFast" ${store.get("kk_fast", false) ? "checked" : ""}> Bare hurtigladere (50 kW og mer)</label>
     <div class="acts"><button type="button" class="btn" id="cOff">Skjul fra kartet</button>${canRefresh ? `<button type="button" class="btn" id="cRef">Hent på nytt fra NOBIL</button>` : ""}</div>` : ""}
   <div class="status" id="cstat">${msg ? esc(msg) : CHARGERS && CHARGERS.advarsel ? esc(CHARGERS.advarsel) : ""}</div>
@@ -737,7 +753,7 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", reTheme);
 
 window.KK = {
   sb, get map() { return map }, get DATA() { return DATA }, get CHARGERS() { return CHARGERS }, pick: null,
-  select: (k) => select(k, false), closeDetail: () => closeDetail(), invalidate: () => map && map.invalidateSize(), get RAW() { return RAW }, get GEO() { return GEO }, get ADR() { return ADR }, get INFO() { return INFO }, get ME() { return ME },
+  select: (k) => select(k, false), closeDetail: () => closeDetail(), invalidate: () => map && map.invalidateSize(), get RAW() { return RAW }, get GEO() { return GEO }, get ADR() { return ADR }, get INFO() { return INFO }, OMRAADER, mittOmraade, utenfor, get ME() { return ME },
   async reloadKunder() {
     const [k, a, inf] = await Promise.all([sb.from("kunder").select("*"), sb.from("kunde_adresse").select("*"), sb.from("kunde_info").select("*")]);
     if (k.error) throw k.error;

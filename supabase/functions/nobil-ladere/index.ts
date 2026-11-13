@@ -10,6 +10,8 @@ const CORS = {
 };
 const MAX_AGE_MS = 24 * 3600 * 1000;
 const MIN_LAT = 64.5; // sør for Helgeland
+// Rogaland (salgsområde Stavanger), med litt margin mot Agder og Sunnhordland
+const iRogaland = (lat: number, lon: number) => lat >= 58.0 && lat <= 59.95 && lon >= 4.7 && lon <= 7.4;
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json" } });
@@ -40,7 +42,7 @@ function parse(dump: any): Station[] {
     const m = String(c.Position ?? "").match(/(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/);
     if (!m) continue;
     const lat = +m[1], lon = +m[2];
-    if (!(lat >= MIN_LAT)) continue;
+    if (!(lat >= MIN_LAT) && !iRogaland(lat, lon)) continue;
     let kw = 0;
     for (const conn of Object.values(s?.attr?.conn ?? {}) as Record<string, { trans?: string; attrval?: string }>[]) {
       const cap = conn?.["5"];
