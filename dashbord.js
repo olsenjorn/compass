@@ -223,16 +223,18 @@ async function hentFakta() {
 const mill = v => v == null ? "" : Math.abs(v) >= 1e6 ? (v / 1e6).toLocaleString("nb-NO", { maximumFractionDigits: 1 }) + " mill." : Math.round(v / 1000).toLocaleString("nb-NO") + " k";
 function faktaPunkter(e) {
   const b = e.br, r = e.regn, c = e.c, ut = [], idag = new Date(), aar = idag.getFullYear();
-  if (b && b.stiftet) {
-    const sd = new Date(b.stiftet), alder = aar - sd.getFullYear();
+  // Eldste dato av selskapets stiftelse og avdelingens oppstart: firmaet kan være eldre enn dagens selskap
+  const datoer = b ? [b.stiftet, b.avdStart].filter(Boolean).sort() : [];
+  if (datoer.length) {
+    const sd = new Date(datoer[0]), alder = aar - sd.getFullYear();
     const jubDag = new Date(aar, sd.getMonth(), sd.getDate()), diff = Math.round((jubDag - new Date(aar, idag.getMonth(), idag.getDate())) / 864e5);
-    const rundt = alder > 0 && alder % 5 === 0;
-    if (rundt && Math.abs(diff) <= 30) ut.push(`🎉 <b>${alder}-årsjubileum</b> ${diff === 0 ? "i dag" : diff > 0 ? `om ${diff} dager (${jubDag.toLocaleDateString("nb-NO", { day: "numeric", month: "long" })})` : `for ${-diff} dager siden`} – stiftet ${sd.toLocaleDateString("nb-NO", { day: "numeric", month: "long", year: "numeric" })}`);
-    else if (rundt) ut.push(`🎉 Fyller <b>${alder} år</b> i år (stiftet ${sd.toLocaleDateString("nb-NO", { day: "numeric", month: "long", year: "numeric" })})`);
-    else ut.push(`Stiftet ${sd.getFullYear()} – <b>${alder} år</b> i drift`);
+    const rundt = alder > 0 && alder % 5 === 0, dt = sd.toLocaleDateString("nb-NO", { day: "numeric", month: "long", year: "numeric" });
+    if (rundt && Math.abs(diff) <= 30) ut.push(`🎉 <b>${alder}-årsjubileum</b> ${diff === 0 ? "i dag" : diff > 0 ? `om ${diff} dager (${jubDag.toLocaleDateString("nb-NO", { day: "numeric", month: "long" })})` : `for ${-diff} dager siden`} – i drift siden ${dt}`);
+    else if (rundt) ut.push(`🎉 Fyller <b>${alder} år</b> i år – i drift siden ${dt}`);
+    else ut.push(`I drift siden ${sd.getFullYear()} – <b>${alder} år</b>`);
   }
-  if (b && b.avdStart && b.hoved !== c.orgnr) ut.push(`Avdelingen her startet ${new Date(b.avdStart).getFullYear()}${b.navn ? ` · del av ${esc(tittel(b.navn))}` : ""}`);
-  if (b && (b.ansatte != null || b.avdAnsatte != null)) ut.push(`${b.avdAnsatte != null && b.hoved !== c.orgnr ? `<b>${b.avdAnsatte}</b> ansatte her` + (b.ansatte != null ? `, ${b.ansatte} i selskapet` : "") : `<b>${b.ansatte}</b> ansatte`}`);
+  if (b && b.navn && b.hoved !== c.orgnr && tittel(b.navn).replace(/\s+AS$/i, "") !== tittel(c.n).replace(/\s+AS$/i, "")) ut.push(`Avdeling av ${esc(tittel(b.navn))}`);
+  if (b) { const her = b.hoved !== c.orgnr ? b.avdAnsatte : null, tot = b.ansatte; if (her != null && tot != null && her !== tot) ut.push(`<b>${her}</b> ansatte her, ${tot} i selskapet`); else if (tot != null || her != null) ut.push(`<b>${tot ?? her}</b> ansatte`) }
   if (r && r.omsetning != null) ut.push(`Omsetning ${r.aar || ""}: <b>${mill(r.omsetning)}</b>${r.resultat != null ? ` · resultat før skatt ${r.resultat < 0 ? "<span class=\"neg\">" + mill(r.resultat) + "</span>" : mill(r.resultat)}` : ""}`);
   if (b && b.dagl) ut.push(`Daglig leder: <b>${esc(b.dagl)}</b>${b.styreleder && b.styreleder !== b.dagl ? ` · styreleder ${esc(b.styreleder)}` : ""}`);
   if (b && b.naering) ut.push(esc(b.naering) + (b.konsern ? " · del av et konsern" : ""));
