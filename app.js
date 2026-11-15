@@ -43,7 +43,7 @@ function mittOmraade() {
   return o[0] || "nord";
 }
 let CHARGERS = store.get("kk_chargers", null);
-const st = { pot: [0, 100], q: "", reg: new Set(), by: new Set(), eier: new Set(), kat: new Set(), seg: new Set(), kj: new Set(), ko: new Set(), flag: new Set(), sort: store.get("kk_sort", "reg"), sel: null };
+const st = { q: "", reg: new Set(), by: new Set(), eier: new Set(), kat: new Set(), seg: new Set(), kj: new Set(), ko: new Set(), flag: new Set(), sort: store.get("kk_sort", "reg"), sel: null };
 
 /* ---------------- innlogging ---------------- */
 function showLogin(msg) {
@@ -194,7 +194,6 @@ async function start() {
     $("lstatus").hidden = true;
     initMap();
     refreshData(true);
-    setTimeout(() => lastPotAlle(), 2500);  // regnskap for potensialfilteret, i bakgrunnen
     let nyttPw = false; try { nyttPw = sessionStorage.getItem("kk_nytt_pw") === "1" } catch (e) { }
     if (nyttPw) {
       try { sessionStorage.removeItem("kk_nytt_pw") } catch (e) { }
@@ -235,182 +234,6 @@ function applyFix0(c) {
   if (a) c = Object.assign({}, c, { adr: a.adresse, pnr: a.postnr || "", orgnr: a.orgnr, akilde: a.kilde, asikk: a.sikkerhet });
   const f = RETT[c.k];
   return f ? Object.assign({}, c, { ps: f.poststed, lat: f.lat, lon: f.lon, r: f.region || c.r, pr: "rettet", rettAv: f.endret_av }) : c;
-}
-
-/* ---------------- potensial: omsetning hos Lindab mot kundens innkjøp (Regnskapsregisteret, samme tall som Proff) ---------------- */
-/* Hvor stor del av kundens innkjøp som realistisk kan være Lindab-produkter, ut fra bransje (næringskode i Enhetsregisteret).
-   En byggmester kjøper mest trelast o.l. hos byggevarehandelen, en blikkenslager kjøper mye av det Lindab selger. */
-const BRANSJE_ANDEL = [
-  [/^43\.91/, 50, "Takarbeid / blikkenslager"],
-  [/^43\.223/, 50, "Ventilasjon og klima"],
-  [/^25\.1/, 40, "Metallkonstruksjoner"],
-  [/^25\./, 25, "Metallvarer"],
-  [/^43\.222/, 15, "Varmeanlegg"],
-  [/^43\.221/, 10, "Rørlegger"],
-  [/^43\.29/, 20, "Annen installasjon"],
-  [/^43\.99/, 15, "Annen spesialisert bygg"],
-  [/^46\.(73|74)|^47\.52/, 8, "Byggevarehandel"],
-  [/^41\.|^43\.3/, 5, "Byggmester / ferdiggjøring"],
-  [/^42\./, 5, "Anlegg"],
-  [/^43\.1/, 3, "Grunnarbeid"],
-  [/^7[01]\./, 0, "Rådgivning (kjøper ikke varer)"],
-];
-/* Kalibrering: Blikkenslager Tom Dreyer AS (Tromsø, kundenr. 11523) er en svært lojal kunde og settes til 80 % utnyttelse.
-   Ut fra regnskap 2023 (kjøp 8,19 mill. = driftskostnader 15,20 − lønn 7,00) og 2,82 mill. hos Lindab siste 12 mnd ga
-   bransjeandelen alene 68,75 %. Alle potensialer skaleres derfor med samme faktor, så proporsjonene mellom kundene beholdes. */
-const KALIBRERING = { faktor: 0.8594, kunde: "Blikkenslager Tom Dreyer AS", maal: 80 };
-const ANDEL_VALG = [0, 3, 5, 10, 15, 20, 30, 40, 50, 60, 80];
-function standardAndel(c, kode) {
-  // Bransjen registrert på kunden går foran næringskoden. Flere bransjer: den mest relevante for Lindab teller.
-  const REG = [[/ventilasjon|blikk/, 50], [/bygghandel/, 8], [/byggentrepren/, 5], [/eiendom/, 3]];
-  const treff = (c.br || "").split(";").map(b => { const t = REG.find(([re]) => re.test(b.toLowerCase())); return t ? [t[1], b] : null }).filter(Boolean).sort((x, y) => y[0] - x[0]);
-  if (treff.length) return { andel: treff[0][0], grunn: "registrert bransje: " + treff[0][1] };
-  for (const [re, a, navn] of BRANSJE_ANDEL) if (kode && re.test(kode)) return { andel: a, grunn: navn };
-  return { andel: 15, grunn: kode ? "annen bransje" : "ukjent bransje" };
-}
-const andelKey = c => "kk_pot_andel_" + c.k;
-function andelFor(c, kode) {
-  const o = store.get(andelKey(c), null);
-  const std = standardAndel(c, kode);
-  return o != null && ANDEL_VALG.includes(+o) ? { andel: +o, grunn: "satt manuelt", std } : { ...std, std };
-}
-const mkr = v => v == null ? "–" : Math.abs(v) >= 1e6 ? (v / 1e6).toLocaleString("nb-NO", { maximumFractionDigits: 1 }) + " mill." : Math.round(v / 1000).toLocaleString("nb-NO") + " k";
-/* Regnskap for alle kunder på én gang (filteret «Utnyttelse av potensial»): Brreg-masseoppslag av avdelinger (100 per kall)
-   og serverfunksjonen «regnskap» (60 selskap per kall). Bufres i nettleseren i 7 dager. */
-let POTDATA = null, potLaster = null, potFeil = "";
-const POTKEY = "kk_potalle_v2";
-function potKjop(r) { return r && r.omsetning != null ? (r.driftskostnad != null && r.lonn != null && r.driftskostnad > r.lonn ? r.driftskostnad - r.lonn : r.omsetning * 0.4) : null }
-function potPst(c) {
-  if (!POTDATA || !c.orgnr) return null;
-  const h = POTDATA.hoved[c.orgnr] || c.orgnr, k = potKjop(POTDATA.regn[h]); if (!k) return null;
-  const a = andelFor(c, (POTDATA.nace[h] || [])[0]).andel; if (!a) return null;   // bransje uten Lindab-potensial
-  return c.t / (k * a / 100 * KALIBRERING.faktor) * 100;
-}
-const potAktiv = () => st.pot[0] > 0 || st.pot[1] < 100;
-const potTekst = () => st.pot[1] >= 100 ? (st.pot[0] > 0 ? `${st.pot[0]} % eller mer` : "alle") : `${st.pot[0]}–${st.pot[1]} %`;
-async function lastPotAlle() {
-  if (POTDATA) return POTDATA;
-  if (potLaster) return potLaster;
-  try { const c = JSON.parse(localStorage.getItem(POTKEY) || "null"); if (c && Date.now() - c.t < 7 * 864e5) { POTDATA = c.d; return POTDATA } } catch (e) { }
-  potLaster = (async () => {
-    const orgnr = [...new Set(CUST().map(c => c.orgnr).filter(o => /^\d{9}$/.test(o || "")))];
-    const hoved = {}, avd = {}, regn = {};
-    for (let i = 0; i < orgnr.length; i += 100) {
-      const del = orgnr.slice(i, i + 100);
-      const j = await fetch("https://data.brreg.no/enhetsregisteret/api/underenheter?size=100&organisasjonsnummer=" + del.join(",")).then(r => r.ok ? r.json() : null).catch(() => null);
-      ((j && j._embedded && j._embedded.underenheter) || []).forEach(u => { if (u.overordnetEnhet) hoved[u.organisasjonsnummer] = u.overordnetEnhet });
-    }
-    const hl = [...new Set(orgnr.map(o => hoved[o] || o))], nace = {};
-    for (let i = 0; i < hl.length; i += 100) {
-      const j = await fetch("https://data.brreg.no/enhetsregisteret/api/enheter?size=100&organisasjonsnummer=" + hl.slice(i, i + 100).join(",")).then(r => r.ok ? r.json() : null).catch(() => null);
-      ((j && j._embedded && j._embedded.enheter) || []).forEach(e => { if (e.naeringskode1) nace[e.organisasjonsnummer] = [e.naeringskode1.kode, e.naeringskode1.beskrivelse] });
-    }
-    for (let i = 0; i < hl.length; i += 60) {
-      const { data, error } = await sb.functions.invoke("regnskap", { body: { orgnr: hl.slice(i, i + 60) } });
-      if (error) throw new Error(error.message || "feil fra regnskapstjenesten");
-      Object.entries((data && data.regnskap) || {}).forEach(([o, r]) => { regn[o] = r && !r.error ? r : (r && r.error ? undefined : null) });
-      tegnPotFilter(`Henter regnskap … ${Math.min(i + 60, hl.length)} av ${hl.length} selskap`);
-    }
-    // antall avdelinger per selskap (for advarsel i kortet) – bare der kunden er en avdeling
-    POTDATA = { hoved, regn, avd, nace };
-    try { localStorage.setItem(POTKEY, JSON.stringify({ t: Date.now(), d: POTDATA })) } catch (e) { }
-    return POTDATA;
-  })().catch(e => { potFeil = e.message || String(e); return null }).finally(() => { potLaster = null; tegnPotFilter(); if (potAktiv()) render(false) });
-  return potLaster;
-}
-function tegnPotFilter(melding) {
-  const el = $("fPot"); if (!el) return;
-  if (isPros()) { el.hidden = true; return } el.hidden = false;
-  const [a, b] = st.pot, med = POTDATA ? CUST().filter(c => potPst(c) != null).length : 0, alle = CUST().length;
-  const status = melding || (potFeil ? `Fikk ikke hentet regnskap: ${esc(potFeil)}` : !POTDATA ? "Henter regnskap …" : `Beregnet for ${med} av ${alle} kunder${potAktiv() ? " – de uten regnskap eller relevant bransje skjules" : ""} · Lindab-andel av kjøp etter bransje`);
-  if (!el.dataset.bygd) {
-    el.dataset.bygd = "1";
-    el.innerHTML = `<div class="potflbl"><span class="seglbl">Utnyttelse av potensial</span><b id="potVerdi"></b></div>
-      <div class="dual" style="--a:${a};--b:${b}"><div class="dualspor"></div>
-        <input type="range" min="0" max="100" step="5" value="${a}" id="potMin" aria-label="Minste utnyttelse i prosent">
-        <input type="range" min="0" max="100" step="5" value="${b}" id="potMax" aria-label="Største utnyttelse i prosent (100 = 100 % eller mer)"></div>
-      <div class="dualskala"><span style="left:0">0 %</span><span style="left:15%">15</span><span style="left:40%">40</span><span style="left:100%">100+ %</span></div>
-      <div class="status" id="potStatus"></div>`;
-    const mi = $("potMin"), ma = $("potMax");
-    let t = null;
-    const endre = hvem => {
-      let x = +mi.value, y = +ma.value;
-      if (x > y) { if (hvem === "min") y = x; else x = y; mi.value = x; ma.value = y }
-      st.pot = [x, y]; tegnPotFilter();
-      if (potAktiv() && !POTDATA) lastPotAlle();
-      clearTimeout(t); t = setTimeout(() => { saveFilters(); renderActive(); render(false) }, 150);
-    };
-    mi.oninput = () => endre("min"); ma.oninput = () => endre("max");
-  }
-  const mi = $("potMin"), ma = $("potMax");
-  if (+mi.value !== a) mi.value = a; if (+ma.value !== b) ma.value = b;
-  el.querySelector(".dual").style.setProperty("--a", a); el.querySelector(".dual").style.setProperty("--b", b);
-  $("potVerdi").textContent = potTekst();
-  $("potStatus").innerHTML = status;
-}
-async function hentRegnskap(c) {
-  const u = await fetch("https://data.brreg.no/enhetsregisteret/api/underenheter/" + c.orgnr).then(r => r.ok ? r.json() : null).catch(() => null);
-  const hoved = (u && u.overordnetEnhet) || c.orgnr, key = "kk_regn4_" + hoved;
-  if (POTDATA && POTDATA.regn[hoved] !== undefined && POTDATA.nace) return { hoved, r: POTDATA.regn[hoved], avd: POTDATA.avd[hoved] ?? null, nace: POTDATA.nace[hoved] || null };
-  let cache = null; try { cache = JSON.parse(localStorage.getItem(key) || "null") } catch (e) { }
-  if (cache && Date.now() - cache.t < 7 * 864e5) return cache.d;
-  const [rg, ua, en] = await Promise.all([
-    sb.functions.invoke("regnskap", { body: { orgnr: [hoved] } }),
-    fetch("https://data.brreg.no/enhetsregisteret/api/underenheter?size=1&overordnetEnhet=" + hoved).then(r => r.ok ? r.json() : null).catch(() => null),
-    fetch("https://data.brreg.no/enhetsregisteret/api/enheter/" + hoved).then(r => r.ok ? r.json() : null).catch(() => null)
-  ]);
-  if (rg.error) throw new Error(rg.error.message || "feil");
-  const r = rg.data && rg.data.regnskap ? rg.data.regnskap[hoved] : null;
-  if (r && r.error) throw new Error(r.error);
-  const d = { hoved, r, avd: ua && ua.page ? ua.page.totalElements : null, nace: en && en.naeringskode1 ? [en.naeringskode1.kode, en.naeringskode1.beskrivelse] : null };
-  try { localStorage.setItem(key, JSON.stringify({ t: Date.now(), d })) } catch (e) { }
-  return d;
-}
-function potGauge(pst, farge) {
-  const p = Math.max(0, Math.min(100, pst)), a = Math.PI * (1 - p / 100), R = 52, cx = 64, cy = 62;
-  const x = cx + R * Math.cos(a), y = cy - R * Math.sin(a), stor = 0;
-  const bue = (fra, til, f) => { const a1 = Math.PI * (1 - fra / 100), a2 = Math.PI * (1 - til / 100); return `<path d="M${(cx + R * Math.cos(a1)).toFixed(1)} ${(cy - R * Math.sin(a1)).toFixed(1)} A${R} ${R} 0 0 1 ${(cx + R * Math.cos(a2)).toFixed(1)} ${(cy - R * Math.sin(a2)).toFixed(1)}" stroke="${f}" stroke-width="12" fill="none" opacity=".28"/>` };
-  return `<svg class="potgauge" viewBox="0 0 128 74" role="img" aria-label="${Math.round(pst)} prosent av potensialet">
-    ${bue(0, 15, "var(--late)")}${bue(15, 40, "var(--c4)")}${bue(40, 100, "var(--c2)")}
-    ${p > 0.5 ? `<path d="M${cx - R} ${cy} A${R} ${R} 0 ${stor} 1 ${x.toFixed(1)} ${y.toFixed(1)}" stroke="${farge}" stroke-width="12" fill="none" stroke-linecap="round"/>` : ""}
-    <line x1="${cx}" y1="${cy}" x2="${(cx + (R - 16) * Math.cos(a)).toFixed(1)}" y2="${(cy - (R - 16) * Math.sin(a)).toFixed(1)}" stroke="var(--ink)" stroke-width="3" stroke-linecap="round"/>
-    <circle cx="${cx}" cy="${cy}" r="5" fill="var(--ink)"/>
-  </svg>`;
-}
-async function visPotensial(c) {
-  const box = () => st.sel === c.k ? $("dPot") : null;
-  const head = `<div class="pothead"><b>Utnyttelse av potensial</b></div>`;
-  if (!c.orgnr) { if (box()) box().innerHTML = head + `<div class="status">Mangler organisasjonsnummer, så regnskapet kan ikke hentes.</div>`; return }
-  let d; try { d = await hentRegnskap(c) } catch (e) { if (box()) box().innerHTML = head + `<div class="status">Fikk ikke hentet regnskap: ${esc(e.message)}</div>`; return }
-  const el = box(); if (!el) return;
-  const r = d.r;
-  if (!r || r.omsetning == null) { el.innerHTML = head + `<div class="status">Fant ikke noe årsregnskap i Brønnøysund (enkeltpersonforetak og nye selskap leverer ofte ikke).</div>`; return }
-  const kjop = r.driftskostnad != null && r.lonn != null && r.driftskostnad > r.lonn ? r.driftskostnad - r.lonn : r.omsetning * 0.4;
-  const anslag = !(r.driftskostnad != null && r.lonn != null && r.driftskostnad > r.lonn);
-  const A = andelFor(c, d.nace && d.nace[0]), andel = A.andel, pot = kjop * andel / 100 * KALIBRERING.faktor, pst = pot > 0 ? c.t / pot * 100 : 0;
-  const bransje = d.nace ? `${esc(d.nace[1])} (${esc(d.nace[0])})` : "ukjent næringskode";
-  const velg = () => `<select id="potAndel"><option value="std" ${A.grunn !== "satt manuelt" ? "selected" : ""}>Standard for bransjen (${A.std.andel} %)</option>${ANDEL_VALG.map(v => `<option value="${v}" ${A.grunn === "satt manuelt" && v === andel ? "selected" : ""}>${v} %</option>`).join("")}</select>`;
-  const koble = () => { const sel = $("potAndel"); if (sel) sel.onchange = () => { if (sel.value === "std") { try { localStorage.removeItem(andelKey(c)) } catch (e) { } } else store.set(andelKey(c), +sel.value); visPotensial(c); tegnPotFilter(); if (potAktiv()) render(false) } };
-  if (!andel) {
-    el.innerHTML = `${head}<div class="status">Bransjen (${bransje}) kjøper normalt ikke Lindab-produkter, så potensial beregnes ikke.</div>
-      <label class="potandel">Lindab-relevant andel for denne kunden ${velg()}</label>`;
-    koble(); return;
-  }
-  const nivaa = pst >= 40 ? ["Høy", "var(--c2)"] : pst >= 15 ? ["Middels", "var(--c4)"] : ["Lav", "var(--late)"];
-  const proff = `https://www.proff.no/bransjesøk?q=${d.hoved}`;
-  el.innerHTML = `${head}
-    <div class="potrow">${potGauge(pst, nivaa[1])}
-      <div class="potnum"><b style="color:${nivaa[1]}">${Math.round(pst)} %</b><span>${nivaa[0]} utnyttelse</span></div></div>
-    <div class="potfakta">Lindab siste 12 mnd: <b>${mkr(c.t)}</b> av anslått potensial <b>${mkr(pot)}</b>${pot > c.t ? ` · uutnyttet ca. <b>${mkr(pot - c.t)}</b>` : " · over anslaget"}</div>
-    <details class="potgrunn"><summary>Slik er det regnet</summary>
-      <div>Regnskap ${r.aar || ""} for ${d.hoved === c.orgnr ? "kunden" : "selskapet avdelingen hører til"}: omsetning ${mkr(r.omsetning)}${anslag ? `. Kjøp anslått til 40 % av omsetningen` : `, driftskostnader ${mkr(r.driftskostnad)} − lønn ${mkr(r.lonn)} = <b>${mkr(kjop)}</b> i kjøp av varer og tjenester`}.</div>
-      <div>Bransje: ${bransje}. Lindab-relevant andel av kjøpene: <b>${andel} %</b> (${esc(A.grunn)}).</div>
-      <div>Kalibrert mot ${esc(KALIBRERING.kunde)} som målestokk (${KALIBRERING.maal} % utnyttelse): potensialet er justert med faktor ${KALIBRERING.faktor.toLocaleString("nb-NO")}.</div>
-      <label class="potandel">Endre for denne kunden ${velg()}</label>
-      ${d.avd > 1 ? `<div class="box warn">Selskapet har ${d.avd} avdelinger. Regnskapet gjelder hele selskapet, så potensialet kan være overvurdert hvis kundenummeret bare dekker én avdeling.</div>` : ""}
-      <div class="mut">Kilde: Regnskapsregisteret (samme tall som på Proff). <a href="${proff}" target="_blank" rel="noopener">Se på Proff ↗</a></div>
-    </details>`;
-  koble();
 }
 
 /* VBL-medlem: logo fra vbl.no, med tekstmerke som reserve hvis bildet ikke lastes */
@@ -460,9 +283,8 @@ function loadFilters() {
   const f = store.get("kk_filters", null);
   ["reg", "by", "eier", "kat", "seg", "kj", "ko", "flag", "pros"].forEach(k => st[k] = new Set(f && Array.isArray(f[k]) ? f[k] : []));
   st.flag.delete("brr");  // Brreg-varsling er fjernet
-  st.pot = f && Array.isArray(f.pot) && f.pot.length === 2 ? f.pot.map(Number) : [0, 100];
 }
-function saveFilters() { store.set("kk_filters", Object.assign(Object.fromEntries(["reg", "by", "eier", "kat", "seg", "kj", "ko", "flag", "pros"].map(k => [k, [...st[k]]])), { pot: st.pot })) }
+function saveFilters() { store.set("kk_filters", Object.fromEntries(["reg", "by", "eier", "kat", "seg", "kj", "ko", "flag", "pros"].map(k => [k, [...st[k]]]))) }
 loadFilters();
 function count(key) { const m = {}; base().forEach(c => { const v = c[key] || NONE; m[v] = (m[v] || 0) + 1 }); return m }
 function optionsFor(k) {
@@ -497,7 +319,6 @@ function buildFilters() {
   $("fFlag").innerHTML = `<span class="seglbl">Vis bare</span>` + Object.entries(FLAGS).map(([k, l]) => `<button type="button" class="chip" data-flag="${k}" aria-pressed="${st.flag.has(k)}">${l} <span class="n">${CUST().filter(c => c[k]).length}</span></button>`).join("");
   $("fPros").innerHTML = `<span class="seglbl">Prospekter</span>` + [["bv", "Byggevarehus"], ["tak", "Takentreprenører >10 mill"]].map(([k, l]) => `<button type="button" class="chip" data-pros="${k}" aria-pressed="${st.pros.has(k)}" title="${esc(PROSF[k])}">${l} <span class="n">${DATA.filter(c => c.pro === k).length}</span></button>`).join("");
   syncProsMode();
-  tegnPotFilter();
   $("fSeg").innerHTML = `<span class="seglbl">Segment</span>` +
     ["A", "B", "C", "D"].map(s => `<button type="button" class="chip" data-seg="${s}" aria-pressed="${st.seg.has(s)}"><span class="dot" style="background:var(--seg${s})"></span>${s}</button>`).join("");
   syncFromState();
@@ -546,7 +367,6 @@ function renderActive() {
   [...st.flag].forEach(v => chips.push({ k: "flag", v, label: FLAGS[v] }));
   [...st.pros].forEach(v => chips.push({ k: "pros", v, label: PROSF[v] }));
   if (st.q.trim()) chips.push({ k: "q", v: st.q, label: `«${st.q.trim()}»` });
-  if (potAktiv() && !isPros()) chips.push({ k: "pot", v: "", label: `Potensial ${potTekst()}` });
   const A = $("activeF");
   A.hidden = !chips.length;
   A.innerHTML = chips.map(c => `<button type="button" class="achip" data-k="${c.k}" data-v="${esc(c.v)}" title="Fjern filter">${esc(c.label)}<span aria-hidden="true">×</span></button>`).join("") +
@@ -564,7 +384,6 @@ function filtered() {
     if (q && !(c.n.toLowerCase().includes(q) || c.k.includes(q) || c.ps.toLowerCase().includes(q) || c.kom.toLowerCase().includes(q) || c.br.toLowerCase().includes(q) || (c.adr || "").toLowerCase().includes(q))) return false;
     if (st.flag.has("vbl") && !c.vbl) return false;
     if (st.flag.has("bv") && !c.bv) return false;
-    if (potAktiv()) { const p = potPst(c); if (p == null || p < st.pot[0] || (st.pot[1] < 100 && p > st.pot[1])) return false }
     return inSet(st.reg, c.r) && inSet(st.by, c.ps) && inSet(st.eier, c.e) && inSet(st.kat, c.kat) && inSet(st.seg, c.s) && inSet(st.kj, c.kj) && inSet(st.ko, c.ko);
   });
 }
@@ -740,7 +559,6 @@ function select(k, pan = true) {
     </dl>
     <div><div class="bar" title="Profil ${share} %"><span style="width:${share}%"></span><span style="width:${100 - share}%"></span></div>
       <div class="barlbl"><span>Profil ${kr(c.p)}</span><span>Ventilasjon ${kr(c.v)}</span></div></div>
-    <div class="potbox" id="dPot"><div class="pothead"><b>Utnyttelse av potensial</b></div><div class="status">Henter regnskap …</div></div>
     ${c.lat == null ? `<div class="box warn">Kunden mangler sted og vises ikke i kartet. Legg inn poststed under, så ser alle kunden i kartet.</div>` :
       rett ? `<div class="box warn">Sted satt av ${esc(rett.endret_av)}. Plassert midt i ${esc(c.ps)}.</div>` :
       c.pr === "adresse" ? `<div class="status">Adresse fra ${esc(c.akilde || "register")}${c.orgnr ? `, org.nr. ${esc(c.orgnr)}` : ""}${c.asikk && c.asikk !== "høy" ? ` · sikkerhet ${esc(c.asikk)}` : ""}.</div>` :
@@ -784,7 +602,6 @@ function select(k, pan = true) {
   $("detail").hidden = false;
   $("dx").onclick = closeDetail;
   visNettside(c);
-  visPotensial(c);
   // Proff kjenner selskapet, ikke alltid avdelingen: slå opp morselskapet i Enhetsregisteret og oppdater lenken
   if (c.orgnr && $("dProff")) fetch("https://data.brreg.no/enhetsregisteret/api/underenheter/" + c.orgnr).then(r => r.ok ? r.json() : null).then(u => {
     const el = $("dProff"); if (el && u && u.overordnetEnhet && st.sel === c.k) el.href = "https://www.proff.no/bransjesøk?q=" + u.overordnetEnhet;
@@ -981,12 +798,11 @@ $("activeF").onclick = e => {
   if (k === "seg") document.querySelector(`[data-seg="${v}"]`).setAttribute("aria-pressed", "false");
   if (k === "flag") document.querySelector(`[data-flag="${v}"]`).setAttribute("aria-pressed", "false");
   if (k === "pros") { st.pros.delete(v); saveFilters(); buildFilters(); render(true); return }
-  if (k === "pot") { st.pot = [0, 100]; saveFilters(); tegnPotFilter(); renderActive(); render(true); return }
   if (FKEYS[k]) { const w = $("f" + k[0].toUpperCase() + k.slice(1)); w.querySelector(".msbtn").innerHTML = msButtonText(k) + `<span class="caret" aria-hidden="true">▾</span>` }
   saveFilters(); renderActive(); render(true);
 };
 $("sort").onchange = e => { st.sort = e.target.value; store.set("kk_sort", st.sort); render(false) };
-$("reset").onclick = () => { st.q = ""; st.pot = [0, 100]; ["reg", "by", "eier", "kat", "seg", "kj", "ko", "flag", "pros"].forEach(k => st[k].clear()); saveFilters(); buildFilters(); render(true) };
+$("reset").onclick = () => { st.q = ""; ["reg", "by", "eier", "kat", "seg", "kj", "ko", "flag", "pros"].forEach(k => st[k].clear()); saveFilters(); buildFilters(); render(true) };
 $("list").onclick = e => { const r = e.target.closest(".row"); if (r) select(r.dataset.k) };
 function showMap() {
   if (window.innerWidth <= 760) {

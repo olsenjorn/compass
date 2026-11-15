@@ -142,36 +142,6 @@ label.f select,label.f input{font-size:14px;text-transform:none;letter-spacing:0
 
 .who{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted)}
 .who b{color:var(--ink);font-weight:600}
-.potbox{display:grid;gap:8px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:10px 0;background:var(--bg)}
-.pothead b{font:600 12px var(--f-display);text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
-.potrow{display:flex;align-items:center;gap:12px}
-.potgauge{width:128px;height:74px;flex:none}
-.potnum{display:grid}
-.potnum b{font:700 32px/1 var(--f-display)}
-.potnum span{font-size:13px;color:var(--muted)}
-.potfakta{font-size:13px}
-.potgrunn{font-size:12px;color:var(--ink)}
-.potgrunn summary{cursor:pointer;color:var(--muted)}
-.potgrunn>div,.potgrunn>label{margin-top:6px}
-.potandel{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.potandel select{font-size:12px;padding:2px 4px;border:1px solid var(--line);border-radius:5px;background:var(--panel);color:var(--ink)}
-.potf{display:grid;gap:4px}
-.potflbl{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
-.potflbl b{font-size:13px}
-.dual{position:relative;height:26px}
-.dualspor{position:absolute;left:9px;right:9px;top:11px;height:4px;border-radius:2px;background:var(--line)}
-.dualspor::before{content:"";position:absolute;inset:0;border-radius:2px;background:linear-gradient(to right,var(--late) 0 15%,var(--c4) 15% 40%,var(--c2) 40% 100%);opacity:.35}
-.dualspor::after{content:"";position:absolute;top:-1px;bottom:-1px;left:calc(var(--a) * 1%);right:calc((100 - var(--b)) * 1%);background:var(--c0);border-radius:3px}
-.dual input[type=range]{position:absolute;inset:0;width:100%;margin:0;background:none;pointer-events:none;-webkit-appearance:none;appearance:none;height:26px}
-.dual input[type=range]::-webkit-slider-runnable-track{background:none;height:26px}
-.dual input[type=range]::-moz-range-track{background:none}
-.dual input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;pointer-events:auto;width:18px;height:18px;margin-top:4px;border-radius:50%;background:var(--panel);border:2px solid var(--brand);box-shadow:0 1px 3px rgba(0,0,0,.3);cursor:grab}
-.dual input[type=range]::-moz-range-thumb{pointer-events:auto;width:14px;height:14px;border-radius:50%;background:var(--panel);border:2px solid var(--brand);box-shadow:0 1px 3px rgba(0,0,0,.3);cursor:grab}
-.dual input[type=range]:focus-visible::-webkit-slider-thumb{outline:2px solid var(--brand);outline-offset:2px}
-.dualskala{position:relative;height:13px;margin:0 9px;font-size:10px;color:var(--muted)}
-.dualskala span{position:absolute;transform:translateX(-50%);white-space:nowrap}
-.dualskala span:first-child{transform:none}
-.dualskala span:last-child{transform:translateX(-100%)}
 .vblmerke{display:inline-flex;vertical-align:middle;margin-left:8px;line-height:0;text-decoration:none}
 .vblmerke img{width:auto;height:22px;display:block;background:none;border:0;padding:0;box-shadow:none}
 .vbltxt{font:700 11px/1 var(--f-body);color:#fff;background:#1d4f91;border-radius:4px;padding:4px 5px;letter-spacing:.04em}
@@ -741,7 +711,6 @@ body.dashing .sum,body.dashing .switch{visibility:hidden}
       <div class="f ms" id="fKo"></div>
       <div class="f full chips" role="group" aria-label="Segment" id="fSeg"></div>
       <div class="f full chips" role="group" aria-label="Vis bare" id="fFlag"></div>
-      <div class="f full potf" id="fPot" role="group" aria-label="Utnyttelse av potensial"></div>
       <div class="f full chips pros" role="group" aria-label="Prospekter" id="fPros"></div>
       <div class="invbanner" id="invBanner" hidden></div>
     </div>
@@ -817,19 +786,19 @@ body.dashing .sum,body.dashing .switch{visibility:hidden}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=20261115t"></script>
-<script src="app.js?v=20261115t"></script>
-<script src="adresser.js?v=20261115t"></script>
-<script src="planner.js?v=20261115t"></script>
-<script src="calendar.js?v=20261115t"></script>
-<script src="invitasjoner.js?v=20261115t"></script>
-<script src="booking.js?v=20261115t"></script>
-<script src="profil.js?v=20261115t"></script>
-<script src="ferger.js?v=20261115t"></script>
-<script src="avdelinger.js?v=20261115t"></script>
-<script src="lunsj.js?v=20261115t"></script>
-<script src="kundedata.js?v=20261115t"></script>
-<script src="vegmeldinger.js?v=20261115t"></script>
-<script src="dashbord.js?v=20261115t"></script>
+<script src="config.js?v=20261115u"></script>
+<script src="app.js?v=20261115u"></script>
+<script src="adresser.js?v=20261115u"></script>
+<script src="planner.js?v=20261115u"></script>
+<script src="calendar.js?v=20261115u"></script>
+<script src="invitasjoner.js?v=20261115u"></script>
+<script src="booking.js?v=20261115u"></script>
+<script src="profil.js?v=20261115u"></script>
+<script src="ferger.js?v=20261115u"></script>
+<script src="avdelinger.js?v=20261115u"></script>
+<script src="lunsj.js?v=20261115u"></script>
+<script src="kundedata.js?v=20261115u"></script>
+<script src="vegmeldinger.js?v=20261115u"></script>
+<script src="dashbord.js?v=20261115u"></script>
 </body>
 </html>
