@@ -375,7 +375,7 @@ function render() {
     const f = document.createElement("form"); f.className = "dwebform";
     f.innerHTML = `<input type="url" required placeholder="https://firma.no" value="${esc((e.web && e.web.nettside) || "")}" aria-label="Nettside for ${esc(e.c.n)}"><button class="btn sm pri">Lagre</button>${e.web && e.web.kilde === "lagret" ? `<button type="button" class="btn sm" data-fjern>Fjern</button>` : ""}<span class="mut" role="status"></span>`;
     b.replaceWith(f); f.querySelector("input").focus();
-    const ferdig = async () => { try { localStorage.removeItem("kk_web_" + k) } catch (er) { } e.web = undefined; render(); try { e.web = await nettside(e.c) } catch (er) { e.web = { feil: true } } render() };
+    const ferdig = async () => { try { localStorage.removeItem("kk_web_" + k) } catch (er) { } document.dispatchEvent(new CustomEvent("kk:nettside", { detail: k })); e.web = undefined; render(); try { e.web = await nettside(e.c) } catch (er) { e.web = { feil: true } } render() };
     f.onsubmit = async ev => {
       ev.preventDefault(); let url = f.querySelector("input").value.trim(); if (!/^https?:\/\//i.test(url)) url = "https://" + url;
       const { error } = await KK().sb.from("kunde_nettside").upsert({ kundenr: k, url, endret: new Date().toISOString() });

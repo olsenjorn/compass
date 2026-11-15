@@ -236,6 +236,40 @@ function applyFix0(c) {
   return f ? Object.assign({}, c, { ps: f.poststed, lat: f.lat, lon: f.lon, r: f.region || c.r, pr: "rettet", rettAv: f.endret_av }) : c;
 }
 
+/* ---------------- kundens nettside (public.kunde_nettside, deles med kollegaer i samme område) ---------------- */
+const WEB = {};
+document.addEventListener("kk:nettside", e => { delete WEB[e.detail] });
+async function visNettside(c) {
+  const vis = url => {
+    const dd = $("dWeb"); if (!dd || st.sel !== c.k) return;
+    const host = url ? url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "") : "";
+    dd.innerHTML = url ? `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(host)} ↗</a> <button type="button" class="linkbtn" id="webDel">Fjern</button>` : `<span class="mut">Ikke lagt inn</span>`;
+    const inp = $("webIn"); if (inp && document.activeElement !== inp) inp.value = host;
+    const del = $("webDel"); if (del) del.onclick = async () => {
+      const { error } = await sb.from("kunde_nettside").delete().eq("kundenr", c.k);
+      if (error) { $("webMsg").textContent = "Kunne ikke fjerne: " + error.message; return }
+      WEB[c.k] = null; try { localStorage.removeItem("kk_web_" + c.k) } catch (e) { } $("webMsg").textContent = "Nettsiden er fjernet."; vis(null);
+    };
+  };
+  const form = $("webForm");
+  if (form) form.onsubmit = async ev => {
+    ev.preventDefault();
+    let url = $("webIn").value.trim().replace(/\s+/g, "");
+    if (!url) return;
+    if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+    if (!/^https?:\/\/[a-z0-9.-]+\.[a-z]{2,}(\/.*)?$/i.test(url)) { $("webMsg").textContent = "Det ser ikke ut som en nettadresse (f.eks. firma.no)."; return }
+    const { error } = await sb.from("kunde_nettside").upsert({ kundenr: c.k, url, endret: new Date().toISOString() });
+    if (error) { $("webMsg").textContent = "Kunne ikke lagre: " + error.message; return }
+    WEB[c.k] = url; try { localStorage.removeItem("kk_web_" + c.k) } catch (e) { }
+    $("webMsg").textContent = "Lagret. Vises også for kollegaene dine og på «I dag».";
+    vis(url);
+  };
+  if (c.k in WEB) return vis(WEB[c.k]);
+  const { data } = await sb.from("kunde_nettside").select("url").eq("kundenr", c.k).maybeSingle();
+  WEB[c.k] = data ? data.url : null;
+  vis(WEB[c.k]);
+}
+
 /* ---------------- filtre og liste ---------------- */
 const FKEYS = { reg: { label: "Region", field: "r", none: "Mangler sted" }, by: { label: "By / poststed", field: "ps", none: "Mangler sted", search: true },
   eier: { label: "Eier", field: "e" }, kat: { label: "Kategori", field: "kat" },
@@ -519,6 +553,7 @@ function select(k, pan = true) {
       ${c.ko ? `<dt>Konstellasjon</dt><dd>${esc(c.ko)}</dd>` : ""}
       ${c.vbl || c.bv ? `<dt>Merket</dt><dd>${[c.vbl ? "VBL-medlem" : "", c.bv ? "Byggvareforhandler" : ""].filter(Boolean).join(" · ")}</dd>` : ""}
       <dt>Omsetning</dt><dd><b>${kr(c.t)}</b></dd>
+      <dt>Nettside</dt><dd id="dWeb"><span class="status">Henter …</span></dd>
     </dl>
     <div><div class="bar" title="Profil ${share} %"><span style="width:${share}%"></span><span style="width:${100 - share}%"></span></div>
       <div class="barlbl"><span>Profil ${kr(c.p)}</span><span>Ventilasjon ${kr(c.v)}</span></div></div>
@@ -548,6 +583,13 @@ function select(k, pan = true) {
       <button class="btn" type="submit">Lagre</button>
     </form>
     <div class="status" id="fixMsg"></div>
+    <form id="webForm" class="fixrow">
+      <label class="f">Legg inn eller endre nettside
+        <input id="webIn" type="text" inputmode="url" placeholder="firma.no" autocomplete="off">
+      </label>
+      <button class="btn" type="submit">Lagre</button>
+    </form>
+    <div class="status" id="webMsg"></div>
     <div class="acts">
       <a class="btn pri" href="https://www.google.com/maps/search/?api=1&query=${q}" target="_blank" rel="noopener">Åpne i Google Maps ↗</a>
       ${c.lat != null ? `<button type="button" class="btn" id="dZoom">Vis i kart</button>` : ""}
@@ -556,6 +598,7 @@ function select(k, pan = true) {
     ${near}`;
   $("detail").hidden = false;
   $("dx").onclick = closeDetail;
+  visNettside(c);
   if ($("dZoom")) $("dZoom").onclick = () => { showMap(); map.setView([c.lat, c.lon], Math.max(map.getZoom(), 12)) };
   if ($("dUnfix")) $("dUnfix").onclick = async () => {
     const { error } = await sb.from("sted_rettelse").delete().eq("kundenr", c.k);
