@@ -246,7 +246,23 @@ function brrVarsle() {
   document.body.appendChild(el);
   const lukk = () => { try { localStorage.setItem("kk_brr_sett", synlig.map(c => c.brr.endret || "").sort().pop() || new Date().toISOString()) } catch (e) { } el.remove() };
   el.querySelector('[data-v="ok"]').onclick = lukk;
-  el.querySelector('[data-v="vis"]').onclick = () => { lukk(); st.flag.add("brr"); applyFilters() };
+  el.querySelector('[data-v="vis"]').onclick = () => { lukk(); visBrr(nye) };
+}
+// Vis Brreg-varslene i lista (kunder, eller prospektene hvis ingen av varslene gjelder kunder)
+function visBrr(liste) {
+  liste = liste || DATA.filter(c => c.brr);
+  if (!liste.length) return;
+  if (window.KKDash && window.KKDash.open) window.KKDash.toggle(false);
+  if (window.KKCal && window.KKCal.open) window.KKCal.toggle(false);
+  if (window.KKBook && window.KKBook.open) window.KKBook.toggle(false);
+  if (window.KKPlan && window.KKPlan.open) window.KKPlan.toggle(false);
+  const kunder = liste.filter(c => !c.pro);
+  // nullstill andre filtre som kunne skjult varslene
+  ["reg", "by", "eier", "kat", "seg", "kj", "ko", "flag", "pros"].forEach(k => st[k].clear()); st.q = ""; syncFromState();
+  if (!kunder.length) liste.forEach(c => st.pros.add(c.pro));
+  st.flag.add("brr"); saveFilters(); buildFilters(); render(true);
+  document.dispatchEvent(new Event("kk:view"));
+  if (liste.length === 1) select(liste[0].k, true);
 }
 function applyFix(c) { c = applyFix0(c); const b = c.orgnr && BRREG[c.orgnr]; return b ? Object.assign({}, c, { brr: b }) : c }
 function applyFix0(c) {
@@ -792,7 +808,7 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", reTheme);
 
 window.KK = {
   sb, get map() { return map }, get DATA() { return DATA }, get CHARGERS() { return CHARGERS }, pick: null,
-  select: (k) => select(k, false), closeDetail: () => closeDetail(), invalidate: () => map && map.invalidateSize(), get RAW() { return RAW }, get GEO() { return GEO }, get ADR() { return ADR }, get INFO() { return INFO }, OMRAADER, mittOmraade, utenfor, get ME() { return ME },
+  select: (k) => select(k, false), visBrr: l => visBrr(l), closeDetail: () => closeDetail(), invalidate: () => map && map.invalidateSize(), get RAW() { return RAW }, get GEO() { return GEO }, get ADR() { return ADR }, get INFO() { return INFO }, OMRAADER, mittOmraade, utenfor, get ME() { return ME },
   async reloadKunder() {
     const [k, a, inf] = await Promise.all([sb.from("kunder").select("*"), sb.from("kunde_adresse").select("*"), sb.from("kunde_info").select("*")]);
     if (k.error) throw k.error;

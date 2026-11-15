@@ -237,16 +237,20 @@ function render() {
   else if (dag) hoved = oppsummering(dag) + (flere.length > 1 ? `<div class="status">Du har ${flere.length} ruter med dagens dato. Viser «${esc(dag.plan.tittel)}».</div>` : "");
   else hoved = `<div class="dsum"><div class="dnone"><b>Ingen reisedag planlagt i dag.</b>${neste ? `<span>Neste: ${esc(datoTxt(neste.d.dato))} · ${neste.s ? neste.s.besok + " besøk" : neste.d.stopp.length + " stopp"} · «${esc(neste.plan.tittel)}»</span>` : `<span>Lag en rute i Planleggeren, så vises dagen her.</span>`}</div>
       <div class="dacts">${neste ? `<button type="button" class="btn" data-open="${neste.plan.id}" data-day="${neste.i}">Åpne neste reisedag</button>` : ""}<button type="button" class="btn" data-go="plan">Planlegg en rute</button></div></div>`;
+  const brrAlle = (KK().DATA || []).filter(c => c.brr);
+  const brrLinje = brrAlle.length ? `<button type="button" class="dbanner rod" data-brr>⚠ ${brrAlle.length === 1 ? "1 Brreg-varsel" : brrAlle.length + " Brreg-varsler"} i ditt område: ${brrAlle.slice(0, 3).map(c => esc(c.n) + (c.pro ? " (prospekt)" : "")).join(", ")}${brrAlle.length > 3 ? " …" : ""} – vis i lista</button>` : "";
   P.innerHTML = `<div class="dwrap">
     <div class="dhead"><div><h2>${esc(hilsen())}${fornavn() ? ", " + esc(fornavn()) : ""}</h2><span class="mut">${esc(datoTxt(iso(idag)))}${me.omraader && me.omraader.length ? " · " + esc(me.omraader.map(o => (KK().OMRAADER && KK().OMRAADER[o] && KK().OMRAADER[o].navn) || o).join(", ")) : ""}</span></div>
       <button type="button" class="btn" id="dRef" ${laster ? "disabled" : ""}>${laster ? "Oppdaterer …" : "Oppdater"}</button></div>
     ${inv ? `<button type="button" class="dbanner" data-go="cal">✉ ${inv === 1 ? "1 invitasjon til kundemøte venter" : inv + " invitasjoner til kundemøter venter"} på svar</button>` : ""}
+    ${brrLinje}
     <div class="dgrid">
       <section class="dcard dday"><h3>${dag ? "Dagens aktivitet" : "I dag"}</h3>${hoved}</section>
       <section class="dcard"><h3>Vær</h3>${vaerHtml()}</section>
       <section class="dcard"><h3>Langs kjøreruta</h3>${hindreHtml()}</section>
     </div></div>`;
   $("dRef").onclick = () => last(true);
+  P.querySelectorAll("[data-brr]").forEach(b => b.onclick = () => KK().visBrr());
   P.querySelectorAll("[data-open]").forEach(b => b.onclick = async () => { const id = b.dataset.open, i = +b.dataset.day; toggle(false); if (!window.KKPlan.open) await window.KKPlan.toggle(true); await window.KKPlan.openPlan(id, i); document.dispatchEvent(new Event("kk:view")) });
   P.querySelectorAll("[data-go]").forEach(b => b.onclick = async () => {
     const g = b.dataset.go; toggle(false);
