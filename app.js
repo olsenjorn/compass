@@ -236,6 +236,8 @@ function applyFix0(c) {
   return f ? Object.assign({}, c, { ps: f.poststed, lat: f.lat, lon: f.lon, r: f.region || c.r, pr: "rettet", rettAv: f.endret_av }) : c;
 }
 
+/* VBL-medlem: logo fra vbl.no, med tekstmerke som reserve hvis bildet ikke lastes */
+const VBL_IKON = `<a class="vblmerke" href="https://www.vbl.no/medlemsoversikt/" target="_blank" rel="noopener" title="Medlem i Ventilasjons- og blikkenslagerbedriftenes landsforbund (VBL)"><img src="https://www.vbl.no/favicon.ico" alt="VBL-medlem" width="22" height="22" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'vbltxt',textContent:'VBL'}))"></a>`;
 /* ---------------- kundens nettside (public.kunde_nettside, deles med kollegaer i samme område) ---------------- */
 const WEB = {};
 document.addEventListener("kk:nettside", e => { delete WEB[e.detail] });
@@ -539,7 +541,7 @@ function select(k, pan = true) {
   }
   const rett = RETT[c.k];
   $("detail").innerHTML = `<button type="button" class="x" id="dx" aria-label="Lukk">×</button>
-    <h2>${esc(c.n)}</h2>
+    <h2>${esc(c.n)}${c.vbl ? VBL_IKON : ""}</h2>
     <dl class="kv">
       <dt>Kundenr.</dt><dd>${esc(c.k)}</dd>
       <dt>Sted</dt><dd>${c.ps ? esc(c.ps) + (c.kom && c.kom !== c.ps ? `, ${esc(c.kom)} kommune` : "") : "<em>Ikke oppgitt</em>"}</dd>
