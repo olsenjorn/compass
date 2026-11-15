@@ -159,6 +159,103 @@ async function hentHindre() {
   hindre.veg.sort((a, b) => (b.alvor - a.alvor) || ((V.KAT[a.m.kat] || {}).rang - (V.KAT[b.m.kat] || {}).rang));
 }
 
+/* ---------- om dagens kunder: fakta (Brreg) og omtale i media siste 2 måneder ---------- */
+let fakta = null, faktaFor = "";
+const ls = { get(k) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null } catch (e) { return null } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)) } catch (e) { } } };
+const BR = "https://data.brreg.no/enhetsregisteret/api/";
+const jget = async u => { const r = await fetch(u, { headers: { Accept: "application/json" } }); return r.ok ? r.json() : null };
+const personNavn = p => p && p.navn ? [p.navn.fornavn, p.navn.mellomnavn, p.navn.etternavn].filter(Boolean).join(" ") : "";
+const tittel = s => String(s || "").toLowerCase().replace(/(^|[\s-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase()).replace(/\b(As|Asa|Ans|Da|Sa)\b/g, m => m.toUpperCase());
+async function brregFakta(orgnr) {
+  const key = "kk_fakta_" + orgnr, c = ls.get(key);
+  if (c && Date.now() - c.t < 7 * 864e5) return c.d;
+  let u = await jget(BR + "underenheter/" + orgnr).catch(() => null), e = null, hoved = orgnr;
+  if (u && u.overordnetEnhet) hoved = u.overordnetEnhet; else u = null;
+  e = await jget(BR + "enheter/" + hoved).catch(() => null);
+  const roller = e ? await jget(BR + "enheter/" + hoved + "/roller").catch(() => null) : null;
+  const finn = kode => { for (const g of (roller && roller.rollegrupper) || []) for (const r of g.roller || []) if (r.type && r.type.kode === kode && !r.avregistrert && r.person) return tittel(personNavn(r.person)); return "" };
+  const d = e ? {
+    hoved, navn: e.navn, stiftet: e.stiftelsesdato || e.registreringsdatoEnhetsregisteret || "", avdStart: u ? u.oppstartsdato || "" : "",
+    ansatte: e.harRegistrertAntallAnsatte ? e.antallAnsatte : null, avdAnsatte: u && u.harRegistrertAntallAnsatte ? u.antallAnsatte : null,
+    naering: e.naeringskode1 ? e.naeringskode1.beskrivelse : "", konsern: !!e.erIKonsern, web: e.hjemmeside || "",
+    dagl: finn("DAGL"), styreleder: finn("LEDE"), kommune: e.forretningsadresse ? tittel(e.forretningsadresse.kommune) : ""
+  } : null;
+  ls.set(key, { t: Date.now(), d });
+  return d;
+}
+async function regnskap(orgnrs) {
+  const ut = {}, mangler = [];
+  orgnrs.forEach(o => { const c = ls.get("kk_regn_" + o); if (c && Date.now() - c.t < 7 * 864e5) ut[o] = c.d; else mangler.push(o) });
+  if (mangler.length) {
+    const { data } = await KK().sb.functions.invoke("regnskap", { body: { orgnr: mangler } });
+    mangler.forEach(o => { const r = data && data.regnskap ? data.regnskap[o] : null; ut[o] = r && !r.error ? r : null; if (!(r && r.error)) ls.set("kk_regn_" + o, { t: Date.now(), d: ut[o] }) });
+  }
+  return ut;
+}
+async function media(c) {
+  const { data, error } = await KK().sb.functions.invoke(`nyheter?k=${encodeURIComponent(c.k)}&navn=${encodeURIComponent(c.n)}`, { method: "GET" });
+  if (error || !data || data.error) throw new Error((data && data.error) || (error && error.message) || "feil");
+  const grense = Date.now() - 61 * 864e5;
+  return { sok: data.sok, saker: (data.saker || []).filter(x => Date.parse(x.dato) >= grense).slice(0, 4) };
+}
+// Kundene på dagen (eller neste reisedag), i besøksrekkefølge
+function dagensKunder() {
+  const x = dag || neste; if (!x) return { x: null, liste: [] };
+  const fra = x.s ? (x.s.stopp || []).filter(e => e.type === "kunde" && !e.skip).map(e => ({ k: e.k, kl: e.fra }))
+    : (x.d.stopp || []).filter(st => st.type !== "avtale" && st.status !== "avlyst" && st.status !== "utsatt").map(st => ({ k: st.k, kl: null }));
+  return { x, liste: fra.map(e => ({ ...e, c: kunde(e.k) })).filter(e => e.c) };
+}
+async function hentFakta() {
+  const { x, liste } = dagensKunder();
+  const id = x ? x.plan.id + "|" + x.i + "|" + liste.map(e => e.k).join(",") : "";
+  if (fakta && faktaFor === id) return;
+  faktaFor = id; fakta = { x, liste: liste.map(e => ({ ...e, br: undefined, regn: undefined, med: undefined })) };
+  if (!liste.length) return;
+  render();
+  await Promise.all(fakta.liste.map(async e => { e.br = e.c.orgnr ? await brregFakta(e.c.orgnr).catch(() => null) : null }));
+  render();
+  const hoveder = [...new Set(fakta.liste.map(e => e.br && e.br.hoved).filter(Boolean))];
+  const rg = hoveder.length ? await regnskap(hoveder).catch(() => ({})) : {};
+  fakta.liste.forEach(e => e.regn = e.br ? rg[e.br.hoved] || null : null);
+  render();
+  for (const e of fakta.liste) { try { e.med = await media(e.c) } catch (er) { e.med = { feil: true, saker: [] } } render() }
+}
+const mill = v => v == null ? "" : Math.abs(v) >= 1e6 ? (v / 1e6).toLocaleString("nb-NO", { maximumFractionDigits: 1 }) + " mill." : Math.round(v / 1000).toLocaleString("nb-NO") + " k";
+function faktaPunkter(e) {
+  const b = e.br, r = e.regn, c = e.c, ut = [], idag = new Date(), aar = idag.getFullYear();
+  if (b && b.stiftet) {
+    const sd = new Date(b.stiftet), alder = aar - sd.getFullYear();
+    const jubDag = new Date(aar, sd.getMonth(), sd.getDate()), diff = Math.round((jubDag - new Date(aar, idag.getMonth(), idag.getDate())) / 864e5);
+    const rundt = alder > 0 && alder % 5 === 0;
+    if (rundt && Math.abs(diff) <= 30) ut.push(`🎉 <b>${alder}-årsjubileum</b> ${diff === 0 ? "i dag" : diff > 0 ? `om ${diff} dager (${jubDag.toLocaleDateString("nb-NO", { day: "numeric", month: "long" })})` : `for ${-diff} dager siden`} – stiftet ${sd.toLocaleDateString("nb-NO", { day: "numeric", month: "long", year: "numeric" })}`);
+    else if (rundt) ut.push(`🎉 Fyller <b>${alder} år</b> i år (stiftet ${sd.toLocaleDateString("nb-NO", { day: "numeric", month: "long", year: "numeric" })})`);
+    else ut.push(`Stiftet ${sd.getFullYear()} – <b>${alder} år</b> i drift`);
+  }
+  if (b && b.avdStart && b.hoved !== c.orgnr) ut.push(`Avdelingen her startet ${new Date(b.avdStart).getFullYear()}${b.navn ? ` · del av ${esc(tittel(b.navn))}` : ""}`);
+  if (b && (b.ansatte != null || b.avdAnsatte != null)) ut.push(`${b.avdAnsatte != null && b.hoved !== c.orgnr ? `<b>${b.avdAnsatte}</b> ansatte her` + (b.ansatte != null ? `, ${b.ansatte} i selskapet` : "") : `<b>${b.ansatte}</b> ansatte`}`);
+  if (r && r.omsetning != null) ut.push(`Omsetning ${r.aar || ""}: <b>${mill(r.omsetning)}</b>${r.resultat != null ? ` · resultat før skatt ${r.resultat < 0 ? "<span class=\"neg\">" + mill(r.resultat) + "</span>" : mill(r.resultat)}` : ""}`);
+  if (b && b.dagl) ut.push(`Daglig leder: <b>${esc(b.dagl)}</b>${b.styreleder && b.styreleder !== b.dagl ? ` · styreleder ${esc(b.styreleder)}` : ""}`);
+  if (b && b.naering) ut.push(esc(b.naering) + (b.konsern ? " · del av et konsern" : ""));
+  if (c.t) ut.push(`Hos Lindab: <b>${mill(c.t)}</b> siste 12 mnd${c.s ? ` · segment ${esc(c.s)}` : ""}`);
+  return ut;
+}
+function faktaHtml() {
+  if (!fakta || !fakta.x) return "";
+  const { x, liste } = fakta;
+  if (!liste.length) return "";
+  const er = x === dag;
+  return `<section class="dcard dfakta"><h3>${er ? "Om dagens kunder" : "Om kundene " + esc(datoTxt(x.d.dato))}</h3>
+    <div class="dfgrid">${liste.map(e => {
+      const p = e.br === undefined ? [`<span class="mut">Henter fakta …</span>`] : faktaPunkter(e);
+      const m = e.med;
+      return `<article class="dfk"><header><b>${esc(e.c.n)}</b><span class="mut">${e.kl != null ? hm(e.kl) + " · " : ""}${esc(e.c.ps || "")}</span></header>
+        <ul class="dfl">${p.length ? p.map(t => `<li>${t}</li>`).join("") : `<li class="mut">Fant ikke firmaet i Brønnøysund${e.c.orgnr ? "" : " (mangler org.nr.)"}.</li>`}</ul>
+        <div class="dmed"><span class="lbl">I media siste 2 mnd</span>${m === undefined ? `<span class="mut">Søker …</span>` : m.feil ? `<span class="mut">Fikk ikke søkt i nyhetene.</span>` : m.saker.length ? `<ul>${m.saker.map(n => `<li><a href="${esc(n.lenke)}" target="_blank" rel="noopener">${esc(n.tittel)}</a><small>${esc(n.kilde)} · ${new Date(n.dato).toLocaleDateString("nb-NO", { day: "numeric", month: "short" })}</small></li>`).join("")}</ul>` : `<span class="mut">Ingen treff på «${esc(m.sok || e.c.n)}».</span>`}</div>
+        ${e.br && e.br.web ? `<a class="dweb" href="${esc(/^https?:/.test(e.br.web) ? e.br.web : "https://" + e.br.web)}" target="_blank" rel="noopener">${esc(e.br.web.replace(/^https?:\/\//, ""))} ↗</a>` : ""}
+      </article>` }).join("")}</div>
+    <div class="dsrc">Fakta: Brønnøysundregistrene · Media: Google Nyheter. Treff kan gjelde andre med samme navn.</div></section>`;
+}
+
 /* ---------- visning ---------- */
 const hilsen = () => { const h = new Date().getHours(); return h < 5 ? "God natt" : h < 10 ? "God morgen" : h < 17 ? "God dag" : "God kveld" };
 const fornavn = () => { const me = KK().ME || {}; return (me.navn || "").split(" ")[0] || "" };
@@ -243,7 +340,8 @@ function render() {
       <section class="dcard dday"><h3>${dag ? "Dagens aktivitet" : "I dag"}</h3>${hoved}</section>
       <section class="dcard"><h3>Vær</h3>${vaerHtml()}</section>
       <section class="dcard"><h3>Langs kjøreruta</h3>${hindreHtml()}</section>
-    </div></div>`;
+    </div>
+    ${faktaHtml()}</div>`;
   $("dRef").onclick = () => last(true);
   P.querySelectorAll("[data-open]").forEach(b => b.onclick = async () => { const id = b.dataset.open, i = +b.dataset.day; toggle(false); if (!window.KKPlan.open) await window.KKPlan.toggle(true); await window.KKPlan.openPlan(id, i); document.dispatchEvent(new Event("kk:view")) });
   P.querySelectorAll("[data-go]").forEach(b => b.onclick = async () => {
@@ -259,7 +357,8 @@ async function last(force) {
   vaer = null; hindre = null; render();
   await Promise.all([
     hentVaer().catch(e => { vaerFeil = e.message || String(e) }).finally(render),
-    hentHindre().catch(e => { hindreFeil = e.message || String(e) }).finally(render)
+    hentHindre().catch(e => { hindreFeil = e.message || String(e) }).finally(render),
+    hentFakta().catch(() => { }).finally(render)
   ]);
   laster = false; sist = Date.now(); render();
 }
