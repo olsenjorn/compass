@@ -212,9 +212,10 @@ sb.auth.onAuthStateChange((ev) => {
 function fromDb(c) {
   return { k: c.kundenr, n: c.navn, kat: c.kategori, e: c.eier, v: +c.oms_ventilasjon || 0, p: +c.oms_profil || 0, t: +c.oms_total || 0, s: c.segment,
     ps: c.poststed || "", src: c.poststed_kilde || "", kom: c.kommune || "", r: c.region || "", lat: c.lat, lon: c.lon, pr: c.presisjon || "",
-    adr: c.besoksadresse || "", pnr: c.postnr || "", br: c.bransje || "", st: c.status || "", om: c.omraade || "nord" };
+    adr: c.besoksadresse || "", pnr: c.postnr || "", br: c.bransje || "", st: c.status || "", om: c.omraade || "nord",
+    mv: (+c.oms_profil || 0) > 0 && (+c.oms_ventilasjon || 0) <= 0, mp: (+c.oms_ventilasjon || 0) > 0 && (+c.oms_profil || 0) <= 0 };
 }
-const PTYPE = { byggevare: "bv", tak: "tak" };
+const PTYPE = { byggevare: "bv", tak: "tak", vbl: "vbl" };
 const PLABEL = { bv: "Byggevarehus", tak: "Takentreprenør" };
 function fromProsp(x) {
   return { k: "P" + x.orgnr, pro: PTYPE[x.type] || x.type, n: x.navn, kat: "", e: "", v: 0, p: 0, t: 0, s: "", ps: x.poststed || "", src: "", kom: "", r: x.region || "",
@@ -276,8 +277,9 @@ async function visNettside(c) {
 const FKEYS = { reg: { label: "Region", field: "r", none: "Mangler sted" }, by: { label: "By / poststed", field: "ps", none: "Mangler sted", search: true },
   eier: { label: "Eier", field: "e" }, kat: { label: "Kategori", field: "kat" },
   kj: { label: "Kjede", field: "kj", none: "Uten kjede", search: true }, ko: { label: "Konstellasjon", field: "ko", none: "Uten konstellasjon" } };
-const FLAGS = { vbl: "VBL-medlem", bv: "Byggvareforhandler" };
-const PROSF = { bv: "Byggevarehus (ikke kunde)", tak: "Takentreprenører >10 mill (ikke kunde)" };
+const FLAGS = { vbl: "VBL-medlem", bv: "Byggvareforhandler", mv: "Mersalg Ventilasjon", mp: "Mersalg Profil" };
+const FLAGTIP = { mv: "Kjøper Profil, men ikke Ventilasjon hos oss", mp: "Kjøper Ventilasjon, men ikke Profil hos oss" };
+const PROSF = { bv: "Byggevarehus (ikke kunde)", tak: "Takentreprenører >10 mill (ikke kunde)", vbl: "VBL-medlemmer (ikke kunde)" };
 const NONE = "__none";
 function loadFilters() {
   const f = store.get("kk_filters", null);
@@ -316,8 +318,8 @@ function buildFilters() {
       <button type="button" class="msbtn" aria-haspopup="true" aria-expanded="false" data-k="${k}">${msButtonText(k)}<span class="caret" aria-hidden="true">▾</span></button>
       <div class="mspop" hidden></div>`;
   });
-  $("fFlag").innerHTML = `<span class="seglbl">Vis bare</span>` + Object.entries(FLAGS).map(([k, l]) => `<button type="button" class="chip" data-flag="${k}" aria-pressed="${st.flag.has(k)}">${l} <span class="n">${CUST().filter(c => c[k]).length}</span></button>`).join("");
-  $("fPros").innerHTML = `<span class="seglbl">Prospekter</span>` + [["bv", "Byggevarehus"], ["tak", "Takentreprenører >10 mill"]].map(([k, l]) => `<button type="button" class="chip" data-pros="${k}" aria-pressed="${st.pros.has(k)}" title="${esc(PROSF[k])}">${l} <span class="n">${DATA.filter(c => c.pro === k).length}</span></button>`).join("");
+  $("fFlag").innerHTML = `<span class="seglbl">Vis bare</span>` + Object.entries(FLAGS).map(([k, l]) => `<button type="button" class="chip" data-flag="${k}" aria-pressed="${st.flag.has(k)}"${FLAGTIP[k] ? ` title="${FLAGTIP[k]}"` : ""}>${l} <span class="n">${CUST().filter(c => c[k]).length}</span></button>`).join("");
+  $("fPros").innerHTML = `<span class="seglbl">Prospekter</span>` + [["bv", "Byggevarehus"], ["tak", "Takentreprenører >10 mill"], ["vbl", "VBL-medlemmer"]].map(([k, l]) => `<button type="button" class="chip" data-pros="${k}" aria-pressed="${st.pros.has(k)}" title="${esc(PROSF[k])}">${l} <span class="n">${DATA.filter(c => c.pro === k).length}</span></button>`).join("");
   syncProsMode();
   $("fSeg").innerHTML = `<span class="seglbl">Segment</span>` +
     ["A", "B", "C", "D"].map(s => `<button type="button" class="chip" data-seg="${s}" aria-pressed="${st.seg.has(s)}"><span class="dot" style="background:var(--seg${s})"></span>${s}</button>`).join("");
@@ -384,6 +386,8 @@ function filtered() {
     if (q && !(c.n.toLowerCase().includes(q) || c.k.includes(q) || c.ps.toLowerCase().includes(q) || c.kom.toLowerCase().includes(q) || c.br.toLowerCase().includes(q) || (c.adr || "").toLowerCase().includes(q))) return false;
     if (st.flag.has("vbl") && !c.vbl) return false;
     if (st.flag.has("bv") && !c.bv) return false;
+    if (st.flag.has("mv") && !c.mv) return false;
+    if (st.flag.has("mp") && !c.mp) return false;
     return inSet(st.reg, c.r) && inSet(st.by, c.ps) && inSet(st.eier, c.e) && inSet(st.kat, c.kat) && inSet(st.seg, c.s) && inSet(st.kj, c.kj) && inSet(st.ko, c.ko);
   });
 }
@@ -494,7 +498,7 @@ function renderMap(arr, fit) {
     const ll = [+c.lat, +c.lon]; pts.push(ll);
     let m;
     if (c.pro) {
-      m = L.marker(ll, { kkNavn: c.n, icon: L.divIcon({ className: "", html: `<div class="prosicon" style="background:${css(c.pro === "tak" ? "--pros-tak" : "--pros-bv")}"></div>`, iconSize: [14, 14], iconAnchor: [7, 7] }) });
+      m = L.marker(ll, { kkNavn: c.n, icon: L.divIcon({ className: "", html: `<div class="prosicon" style="background:${css(c.pro === "tak" ? "--pros-tak" : c.pro === "vbl" ? "--pros-vbl" : "--pros-bv")}"></div>`, iconSize: [14, 14], iconAnchor: [7, 7] }) });
       m.bindTooltip(`${esc(c.n)} · ${esc(PLABEL[c.pro])}${c.oms != null ? " · " + mnok(c.oms) : ""}`, { direction: "top" });
     } else {
       m = L.circleMarker(ll, { kkNavn: c.n, radius: { A: 10, B: 8.5, C: 7, D: 5.5 }[c.s] || 6, color: "#fff", weight: 1.5, fillColor: css(c.kat === "Profil" ? "--profil" : "--vent"), fillOpacity: .95, bubblingMouseEvents: false });
@@ -678,7 +682,7 @@ function selectPros(c, pan) {
       <dt>Omsetning</dt><dd>${c.oms != null ? `<b>${kr(c.oms)}</b>${c.aar ? ` <span class="mut">(${c.aar}${c.pro === "bv" ? ", hele selskapet" : ""})</span>` : ""}` : `<span class="mut">${c.kj && c.kj !== "Frittstående" ? "Del av kjede, tall for butikken finnes ikke" : "Ikke tilgjengelig"}</span>`}</dd>
       ${c.web ? `<dt>Nettside</dt><dd><a href="${esc(/^https?:/.test(c.web) ? c.web : "https://" + c.web)}" target="_blank" rel="noopener">${esc(c.web)}</a></dd>` : ""}
     </dl>
-    <div class="prosnote">Står ikke på kundelista vår. Hentet fra Brønnøysundregistrene${c.pro === "tak" ? " (næringskode takarbeid eller «tak» i navnet, omsetning over 10 mill)" : " (detalj- og engroshandel med byggevarer)"}.</div>
+    <div class="prosnote">Står ikke på kundelista vår. Hentet fra Brønnøysundregistrene${c.pro === "tak" ? " (næringskode takarbeid eller «tak» i navnet, omsetning over 10 mill)" : c.pro === "vbl" ? " – medlem i VBL (vbl.no/medlemsoversikt)" : " (detalj- og engroshandel med byggevarer)"}.</div>
     <div class="acts">
       <a class="btn pri" href="https://www.google.com/maps/search/?api=1&query=${q}" target="_blank" rel="noopener">Åpne i Google Maps ↗</a>
       ${c.lat != null ? `<button type="button" class="btn" id="dZoom">Vis i kart</button>` : ""}
