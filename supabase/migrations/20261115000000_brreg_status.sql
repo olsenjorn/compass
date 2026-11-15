@@ -95,6 +95,7 @@ begin
     -- konkurs/avvikling ligger på enheten (for avdelinger: morselskapet)
     if st = 'aktiv' then
       if coalesce((h->>'konkurs')::boolean, false) then st := 'konkurs'; dt := nullif(h->>'konkursdato','')::date;
+      elsif h #>> '{organisasjonsform,kode}' = 'KBO' then st := 'konkurs'; dt := nullif(h->>'registreringsdatoEnhetsregisteret','')::date;  -- registrert på selve konkursboet
       elsif coalesce((h->>'underTvangsavviklingEllerTvangsopplosning')::boolean, false) then st := 'tvangsavvikling'; dt := nullif(h->>'tvangsavvikletPgaManglendeSlettingDato','')::date;
       elsif coalesce((h->>'underAvvikling')::boolean, false) then st := 'avvikling'; dt := nullif(h->>'underAvviklingDato','')::date;
       elsif h ? 'slettedato' then st := 'slettet'; dt := nullif(h->>'slettedato','')::date;
