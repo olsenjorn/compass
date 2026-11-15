@@ -131,7 +131,7 @@ async function hentVaer() {
     const x = naermest(ts, p.T);
     const idag = iso(new Date()), dagTs = ts.filter(y => iso(new Date(y.t)) === idag && y.t >= Date.now() - 3600e3);
     const temp = dagTs.map(y => y.i.air_temperature);
-    return { ...p, x, fv, min: temp.length ? Math.min(...temp) : null, max: temp.length ? Math.max(...temp) : null,
+    return { ...p, x, fv, lo: temp.length ? Math.min(...temp) : null, hi: temp.length ? Math.max(...temp) : null,
       nedbor: dagTs.filter(y => y.p1 != null).reduce((s, y) => s + y.p1, 0) };
   }));
   vaer = { pk: res };
@@ -204,8 +204,8 @@ function vaerHtml() {
   const vind = vaer.pk.filter(p => p.x.i.wind_speed >= 14);
   return `<div class="dwx">
       <div class="dwxnow"><span class="ik" aria-hidden="true">${vIkon(sym)}</span><div><b>${Math.round(i.air_temperature)}°</b><span>${esc(vTekst(sym))}</span></div></div>
-      <div class="dwxmeta"><b>${esc(h.navn)}</b>${h.naa ? " nå" : " kl. " + hm(h.min)}<br>
-        ${h.min != null ? `Resten av dagen ${Math.round(h.min)}° til ${Math.round(h.max)}° · ` : ""}vind ${Math.round(i.wind_speed)} m/s${h.nedbor >= 0.2 ? ` · ${h.nedbor.toFixed(1).replace(".", ",")} mm nedbør` : " · lite nedbør"}</div>
+      <div class="dwxmeta"><b>${esc(h.navn)}</b>${h.naa || h.min <= naaMin() ? " nå" : " kl. " + hm(h.min)}<br>
+        ${h.lo != null ? `Resten av dagen ${Math.round(h.lo)}° til ${Math.round(h.hi)}° · ` : ""}vind ${Math.round(i.wind_speed)} m/s${h.nedbor >= 0.2 ? ` · ${h.nedbor.toFixed(1).replace(".", ",")} mm nedbør` : " · lite nedbør"}</div>
     </div>
     ${vaer.pk.length > 1 ? `<ul class="dwxrow">${vaer.pk.slice(1).map(p => `<li title="${esc(vTekst(p.x.s1 || p.x.s6))}"><span class="t">${hm(p.min)}</span><span class="ik" aria-hidden="true">${vIkon(p.x.s1 || p.x.s6)}</span><b>${Math.round(p.x.i.air_temperature)}°</b><span class="n">${esc(p.navn)}</span></li>`).join("")}</ul>` : ""}
     ${glatt ? `<div class="dwxwarn">❄ Nedbør rundt null grader – regn med glatte veger.</div>` : ""}
