@@ -255,6 +255,10 @@ const BRANSJE_ANDEL = [
   [/^43\.1/, 3, "Grunnarbeid"],
   [/^7[01]\./, 0, "Rådgivning (kjøper ikke varer)"],
 ];
+/* Kalibrering: Blikkenslager Tom Dreyer AS (Tromsø, kundenr. 11523) er en svært lojal kunde og settes til 80 % utnyttelse.
+   Ut fra regnskap 2023 (kjøp 8,19 mill. = driftskostnader 15,20 − lønn 7,00) og 2,82 mill. hos Lindab siste 12 mnd ga
+   bransjeandelen alene 68,75 %. Alle potensialer skaleres derfor med samme faktor, så proporsjonene mellom kundene beholdes. */
+const KALIBRERING = { faktor: 0.8594, kunde: "Blikkenslager Tom Dreyer AS", maal: 80 };
 const ANDEL_VALG = [0, 3, 5, 10, 15, 20, 30, 40, 50, 60, 80];
 function standardAndel(c, kode) {
   // Bransjen registrert på kunden går foran næringskoden. Flere bransjer: den mest relevante for Lindab teller.
@@ -280,7 +284,7 @@ function potPst(c) {
   if (!POTDATA || !c.orgnr) return null;
   const h = POTDATA.hoved[c.orgnr] || c.orgnr, k = potKjop(POTDATA.regn[h]); if (!k) return null;
   const a = andelFor(c, (POTDATA.nace[h] || [])[0]).andel; if (!a) return null;   // bransje uten Lindab-potensial
-  return c.t / (k * a / 100) * 100;
+  return c.t / (k * a / 100 * KALIBRERING.faktor) * 100;
 }
 const potAktiv = () => st.pot[0] > 0 || st.pot[1] < 100;
 const potTekst = () => st.pot[1] >= 100 ? (st.pot[0] > 0 ? `${st.pot[0]} % eller mer` : "alle") : `${st.pot[0]}–${st.pot[1]} %`;
@@ -383,7 +387,7 @@ async function visPotensial(c) {
   if (!r || r.omsetning == null) { el.innerHTML = head + `<div class="status">Fant ikke noe årsregnskap i Brønnøysund (enkeltpersonforetak og nye selskap leverer ofte ikke).</div>`; return }
   const kjop = r.driftskostnad != null && r.lonn != null && r.driftskostnad > r.lonn ? r.driftskostnad - r.lonn : r.omsetning * 0.4;
   const anslag = !(r.driftskostnad != null && r.lonn != null && r.driftskostnad > r.lonn);
-  const A = andelFor(c, d.nace && d.nace[0]), andel = A.andel, pot = kjop * andel / 100, pst = pot > 0 ? c.t / pot * 100 : 0;
+  const A = andelFor(c, d.nace && d.nace[0]), andel = A.andel, pot = kjop * andel / 100 * KALIBRERING.faktor, pst = pot > 0 ? c.t / pot * 100 : 0;
   const bransje = d.nace ? `${esc(d.nace[1])} (${esc(d.nace[0])})` : "ukjent næringskode";
   const velg = () => `<select id="potAndel"><option value="std" ${A.grunn !== "satt manuelt" ? "selected" : ""}>Standard for bransjen (${A.std.andel} %)</option>${ANDEL_VALG.map(v => `<option value="${v}" ${A.grunn === "satt manuelt" && v === andel ? "selected" : ""}>${v} %</option>`).join("")}</select>`;
   const koble = () => { const sel = $("potAndel"); if (sel) sel.onchange = () => { if (sel.value === "std") { try { localStorage.removeItem(andelKey(c)) } catch (e) { } } else store.set(andelKey(c), +sel.value); visPotensial(c); tegnPotFilter(); if (potAktiv()) render(false) } };
@@ -401,6 +405,7 @@ async function visPotensial(c) {
     <details class="potgrunn"><summary>Slik er det regnet</summary>
       <div>Regnskap ${r.aar || ""} for ${d.hoved === c.orgnr ? "kunden" : "selskapet avdelingen hører til"}: omsetning ${mkr(r.omsetning)}${anslag ? `. Kjøp anslått til 40 % av omsetningen` : `, driftskostnader ${mkr(r.driftskostnad)} − lønn ${mkr(r.lonn)} = <b>${mkr(kjop)}</b> i kjøp av varer og tjenester`}.</div>
       <div>Bransje: ${bransje}. Lindab-relevant andel av kjøpene: <b>${andel} %</b> (${esc(A.grunn)}).</div>
+      <div>Kalibrert mot ${esc(KALIBRERING.kunde)} som målestokk (${KALIBRERING.maal} % utnyttelse): potensialet er justert med faktor ${KALIBRERING.faktor.toLocaleString("nb-NO")}.</div>
       <label class="potandel">Endre for denne kunden ${velg()}</label>
       ${d.avd > 1 ? `<div class="box warn">Selskapet har ${d.avd} avdelinger. Regnskapet gjelder hele selskapet, så potensialet kan være overvurdert hvis kundenummeret bare dekker én avdeling.</div>` : ""}
       <div class="mut">Kilde: Regnskapsregisteret (samme tall som på Proff). <a href="${proff}" target="_blank" rel="noopener">Se på Proff ↗</a></div>
