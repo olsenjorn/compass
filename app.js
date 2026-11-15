@@ -33,9 +33,6 @@ let RETT = {};           // kundenr -> rettelse
 let ADR = {};            // kundenr -> besøksadresse (kunde_adresse)
 let PROS = [];           // prospekter (ikke kunder): byggevarehus og takentreprenører
 let INFO = {};           // kundenr -> kjede, konstellasjon, vbl, byggvare (kunde_info)
-let BRREG = {};          // orgnr -> status fra Brønnøysund når den ikke er «aktiv» (konkurs, avvikling, slettet …)
-const BRLAB = { konkurs: "Konkurs", avvikling: "Under avvikling", tvangsavvikling: "Tvangsavvikling", slettet: "Slettet i Brreg", nedlagt: "Avdeling nedlagt" };
-const brrTxt = b => `${BRLAB[b.status] || b.status}${b.dato ? " " + new Date(b.dato).toLocaleDateString("nb-NO") : ""}${b.hovednavn && /konkurs|avvikling/.test(b.status) ? ` (${b.hovednavn})` : ""}`;
 let DATA = [];
 let ME = null;           // {epost, navn, rolle, omraader}
 // Området brukeren hører til: eneste område i tilgang, ellers området med flest synlige kunder
@@ -169,16 +166,14 @@ async function start() {
         ["kommuner", "regmap", "reglab", "poststeder"].map(f => fetch(`data/${f}.json`).then(r => r.json())));
       GEO = { kommuner, regmap, reglab, poststeder };
     }
-    const [me, k, r, a, inf, pr, br] = await Promise.all([
+    const [me, k, r, a, inf, pr] = await Promise.all([
       sb.from("tilgang").select("epost,navn,rolle,omraader").maybeSingle(),
       sb.from("kunder").select("*"),
       sb.from("sted_rettelse").select("*"),
       sb.from("kunde_adresse").select("*"),
       sb.from("kunde_info").select("*"),
-      sb.from("prospekter").select("*").eq("skjult", false),
-      sb.from("brreg_status").select("orgnr,status,dato,hovedorgnr,hovednavn,endret").not("status", "in", "(aktiv,ukjent)")
+      sb.from("prospekter").select("*").eq("skjult", false)
     ]);
-    BRREG = {}; (br && br.data || []).forEach(x => BRREG[x.orgnr] = x);
     if (k.error) throw k.error;
     ME = me.data;
     if (!ME) {
@@ -199,7 +194,6 @@ async function start() {
     $("lstatus").hidden = true;
     initMap();
     refreshData(true);
-    setTimeout(brrVarsle, 1200);
     let nyttPw = false; try { nyttPw = sessionStorage.getItem("kk_nytt_pw") === "1" } catch (e) { }
     if (nyttPw) {
       try { sessionStorage.removeItem("kk_nytt_pw") } catch (e) { }
@@ -225,46 +219,13 @@ const PLABEL = { bv: "Byggevarehus", tak: "Takentreprenør" };
 function fromProsp(x) {
   return { k: "P" + x.orgnr, pro: PTYPE[x.type] || x.type, n: x.navn, kat: "", e: "", v: 0, p: 0, t: 0, s: "", ps: x.poststed || "", src: "", kom: "", r: x.region || "",
     lat: x.lat, lon: x.lon, pr: x.lat != null ? "adresse" : "", adr: x.adresse || "", pnr: x.postnr || "", br: x.naering || "", st: "", kj: x.kjede || "", ko: "",
-    orgnr: x.orgnr, oms: x.omsetning, aar: x.regnskapsaar, ans: x.ansatte, web: x.hjemmeside || "", hoved: x.hovedorgnr || "", raw: x, brr: BRREG[x.orgnr] || null };
+    orgnr: x.orgnr, oms: x.omsetning, aar: x.regnskapsaar, ans: x.ansatte, web: x.hjemmeside || "", hoved: x.hovedorgnr || "", raw: x };
 }
 const isPros = () => st.pros.size > 0;
 const CUST = () => DATA.filter(c => !c.pro);
 const base = () => isPros() ? DATA.filter(c => c.pro && st.pros.has(c.pro)) : CUST();
 const mnok = v => v == null ? "" : (v / 1e6).toLocaleString("nb-NO", { maximumFractionDigits: v >= 1e8 ? 0 : 1 }) + " mill";
-function brrBox(c) {
-  if (!c.brr) return "";
-  const b = c.brr, url = `https://virksomhet.brreg.no/nb/oppslag/${b.hovedorgnr && /konkurs|avvikling/.test(b.status) ? "enheter/" + b.hovedorgnr : "enheter/" + c.orgnr}`;
-  return `<div class="brrbox" role="alert"><b>⚠ ${esc(brrTxt(b))}</b><span>Ifølge Brønnøysundregistrene${b.hovedorgnr && /konkurs|avvikling/.test(b.status) ? " gjelder dette selskapet avdelingen tilhører" : ""}. Sjekk før du selger på kreditt. <a href="${url}" target="_blank" rel="noopener">Se i Brreg ↗</a></span></div>`;
-}
-// Ved oppstart: si fra om nye Brreg-varsler siden sist (per bruker, i nettleseren)
-function brrVarsle() {
-  const synlig = DATA.filter(c => c.brr), sist = (() => { try { return localStorage.getItem("kk_brr_sett") || "" } catch (e) { return "" } })();
-  const nye = synlig.filter(c => (c.brr.endret || "") > sist);
-  if (!nye.length) return;
-  const el = document.createElement("div"); el.className = "brrtoast"; el.setAttribute("role", "status");
-  el.innerHTML = `<b>⚠ ${nye.length === 1 ? "1 kunde/prospekt har" : nye.length + " kunder/prospekter har"} fått ny status i Brreg</b><span>${nye.slice(0, 3).map(c => esc(c.n) + ": " + esc(BRLAB[c.brr.status] || c.brr.status)).join("<br>")}${nye.length > 3 ? `<br>… og ${nye.length - 3} til` : ""}</span><div><button type="button" class="btn sm pri" data-v="vis">Vis dem</button><button type="button" class="btn sm" data-v="ok">OK</button></div>`;
-  document.body.appendChild(el);
-  const lukk = () => { try { localStorage.setItem("kk_brr_sett", synlig.map(c => c.brr.endret || "").sort().pop() || new Date().toISOString()) } catch (e) { } el.remove() };
-  el.querySelector('[data-v="ok"]').onclick = lukk;
-  el.querySelector('[data-v="vis"]').onclick = () => { lukk(); visBrr(nye) };
-}
-// Vis Brreg-varslene i lista (kunder, eller prospektene hvis ingen av varslene gjelder kunder)
-function visBrr(liste) {
-  liste = liste || DATA.filter(c => c.brr);
-  if (!liste.length) return;
-  if (window.KKDash && window.KKDash.open) window.KKDash.toggle(false);
-  if (window.KKCal && window.KKCal.open) window.KKCal.toggle(false);
-  if (window.KKBook && window.KKBook.open) window.KKBook.toggle(false);
-  if (window.KKPlan && window.KKPlan.open) window.KKPlan.toggle(false);
-  const kunder = liste.filter(c => !c.pro);
-  // nullstill andre filtre som kunne skjult varslene
-  ["reg", "by", "eier", "kat", "seg", "kj", "ko", "flag", "pros"].forEach(k => st[k].clear()); st.q = ""; syncFromState();
-  if (!kunder.length) liste.forEach(c => st.pros.add(c.pro));
-  st.flag.add("brr"); saveFilters(); buildFilters(); render(true);
-  document.dispatchEvent(new Event("kk:view"));
-  if (liste.length === 1) select(liste[0].k, true);
-}
-function applyFix(c) { c = applyFix0(c); const b = c.orgnr && BRREG[c.orgnr]; return b ? Object.assign({}, c, { brr: b }) : c }
+function applyFix(c) { return applyFix0(c) }
 function applyFix0(c) {
   const i = INFO[c.k];
   c = Object.assign({}, c, { kj: i && i.kjede || "", ko: i && i.konstellasjon || "", vbl: !!(i && i.vbl), bv: !!(i && i.byggvare) });
@@ -279,12 +240,13 @@ function applyFix0(c) {
 const FKEYS = { reg: { label: "Region", field: "r", none: "Mangler sted" }, by: { label: "By / poststed", field: "ps", none: "Mangler sted", search: true },
   eier: { label: "Eier", field: "e" }, kat: { label: "Kategori", field: "kat" },
   kj: { label: "Kjede", field: "kj", none: "Uten kjede", search: true }, ko: { label: "Konstellasjon", field: "ko", none: "Uten konstellasjon" } };
-const FLAGS = { vbl: "VBL-medlem", bv: "Byggvareforhandler", brr: "⚠ Brreg-varsel" };
+const FLAGS = { vbl: "VBL-medlem", bv: "Byggvareforhandler" };
 const PROSF = { bv: "Byggevarehus (ikke kunde)", tak: "Takentreprenører >10 mill (ikke kunde)" };
 const NONE = "__none";
 function loadFilters() {
   const f = store.get("kk_filters", null);
   ["reg", "by", "eier", "kat", "seg", "kj", "ko", "flag", "pros"].forEach(k => st[k] = new Set(f && Array.isArray(f[k]) ? f[k] : []));
+  st.flag.delete("brr");  // Brreg-varsling er fjernet
 }
 function saveFilters() { store.set("kk_filters", Object.fromEntries(["reg", "by", "eier", "kat", "seg", "kj", "ko", "flag", "pros"].map(k => [k, [...st[k]]]))) }
 loadFilters();
@@ -380,14 +342,12 @@ function filtered() {
   const inSet = (set, v) => !set.size || set.has(v || NONE);
   if (isPros()) return base().filter(c => {
     if (q && !(c.n.toLowerCase().includes(q) || (c.orgnr || "").includes(q) || c.ps.toLowerCase().includes(q) || (c.adr || "").toLowerCase().includes(q) || (c.kj || "").toLowerCase().includes(q))) return false;
-    if (st.flag.has("brr") && !c.brr) return false;
     return inSet(st.reg, c.r) && inSet(st.by, c.ps) && inSet(st.kj, c.kj);
   });
   return CUST().filter(c => {
     if (q && !(c.n.toLowerCase().includes(q) || c.k.includes(q) || c.ps.toLowerCase().includes(q) || c.kom.toLowerCase().includes(q) || c.br.toLowerCase().includes(q) || (c.adr || "").toLowerCase().includes(q))) return false;
     if (st.flag.has("vbl") && !c.vbl) return false;
     if (st.flag.has("bv") && !c.bv) return false;
-    if (st.flag.has("brr") && !c.brr) return false;
     return inSet(st.reg, c.r) && inSet(st.by, c.ps) && inSet(st.eier, c.e) && inSet(st.kat, c.kat) && inSet(st.seg, c.s) && inSet(st.kj, c.kj) && inSet(st.ko, c.ko);
   });
 }
@@ -405,7 +365,7 @@ function prosRowHtml(c) {
     <span class="seg P ${c.pro}" title="Prospekt: ${esc(PLABEL[c.pro])}">P</span>
     <span class="nm">${esc(c.n)}</span>
     <span class="amt">${c.oms != null ? mnok(c.oms) : ""}<small>${esc(c.orgnr)}</small></span>
-    <span class="meta">${esc(PLABEL[c.pro])}${c.kj && c.kj !== "Frittstående" ? " · " + esc(c.kj) : ""}${where ? " · " + esc(where) : ""}${c.lat == null ? '<span class="nopin">mangler sted</span>' : ""}${c.brr ? `<span class="brrflag">⚠ ${esc(BRLAB[c.brr.status] || c.brr.status)}</span>` : ""}</span>
+    <span class="meta">${esc(PLABEL[c.pro])}${c.kj && c.kj !== "Frittstående" ? " · " + esc(c.kj) : ""}${where ? " · " + esc(where) : ""}${c.lat == null ? '<span class="nopin">mangler sted</span>' : ""}</span>
   </button>`;
 }
 function rowHtml(c) {
@@ -415,7 +375,7 @@ function rowHtml(c) {
     <span class="seg ${esc(c.s)}" title="Segment ${esc(c.s)}">${esc(c.s)}</span>
     <span class="nm">${esc(c.n)}</span>
     <span class="amt">${krK(c.t)}<small>${esc(c.k)}</small></span>
-    <span class="meta"><span class="kat ${esc(c.kat)}"></span>${esc(c.kat)} · ${esc(c.e)}${where ? " · " + esc(where) : ""}${c.lat == null ? '<span class="nopin">mangler sted</span>' : ""}${c.brr ? `<span class="brrflag">⚠ ${esc(BRLAB[c.brr.status] || c.brr.status)}</span>` : ""}</span>
+    <span class="meta"><span class="kat ${esc(c.kat)}"></span>${esc(c.kat)} · ${esc(c.e)}${where ? " · " + esc(where) : ""}${c.lat == null ? '<span class="nopin">mangler sted</span>' : ""}</span>
   </button>`;
 }
 function renderList(arr) {
@@ -501,8 +461,8 @@ function renderMap(arr, fit) {
       m = L.marker(ll, { kkNavn: c.n, icon: L.divIcon({ className: "", html: `<div class="prosicon" style="background:${css(c.pro === "tak" ? "--pros-tak" : "--pros-bv")}"></div>`, iconSize: [14, 14], iconAnchor: [7, 7] }) });
       m.bindTooltip(`${esc(c.n)} · ${esc(PLABEL[c.pro])}${c.oms != null ? " · " + mnok(c.oms) : ""}`, { direction: "top" });
     } else {
-      m = L.circleMarker(ll, { kkNavn: c.n, radius: { A: 10, B: 8.5, C: 7, D: 5.5 }[c.s] || 6, color: c.brr ? css("--late") : "#fff", weight: c.brr ? 3 : 1.5, fillColor: css(c.kat === "Profil" ? "--profil" : "--vent"), fillOpacity: .95, bubblingMouseEvents: false });
-      m.bindTooltip(`${esc(c.n)} · ${krK(c.t)}${c.pr === "poststed" ? " · plassert på poststed" : ""}${c.brr ? " · ⚠ " + esc(brrTxt(c.brr)) : ""}`, { direction: "top" });
+      m = L.circleMarker(ll, { kkNavn: c.n, radius: { A: 10, B: 8.5, C: 7, D: 5.5 }[c.s] || 6, color: "#fff", weight: 1.5, fillColor: css(c.kat === "Profil" ? "--profil" : "--vent"), fillOpacity: .95, bubblingMouseEvents: false });
+      m.bindTooltip(`${esc(c.n)} · ${krK(c.t)}${c.pr === "poststed" ? " · plassert på poststed" : ""}`, { direction: "top" });
     }
     m.on("click", () => pickCustomer(c.k));
     ms.push(m);
@@ -545,7 +505,6 @@ function select(k, pan = true) {
   }
   const rett = RETT[c.k];
   $("detail").innerHTML = `<button type="button" class="x" id="dx" aria-label="Lukk">×</button>
-    ${brrBox(c)}
     <h2>${esc(c.n)}</h2>
     <dl class="kv">
       <dt>Kundenr.</dt><dd>${esc(c.k)}</dd>
@@ -656,7 +615,6 @@ function selectPros(c, pan) {
     if (n.length) near = `<div class="sub">Nærmeste kunder</div><div class="chg">${n.map(([d, x]) => `<div><span>${esc(x.n)} · ${esc(x.s)}</span><span>${d < 1 ? "<1" : d.toFixed(d < 10 ? 1 : 0)} km</span></div>`).join("")}</div>`;
   }
   $("detail").innerHTML = `<button type="button" class="x" id="dx" aria-label="Lukk">×</button>
-    ${brrBox(c)}
     <div><span class="ptag ${c.pro}">Prospekt · ${esc(PLABEL[c.pro])}</span></div>
     <h2>${esc(c.n)}</h2>
     <dl class="kv">
@@ -809,7 +767,7 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", reTheme);
 
 window.KK = {
   sb, get map() { return map }, get DATA() { return DATA }, get CHARGERS() { return CHARGERS }, pick: null,
-  select: (k) => select(k, false), visBrr: l => visBrr(l), closeDetail: () => closeDetail(), invalidate: () => map && map.invalidateSize(), get RAW() { return RAW }, get GEO() { return GEO }, get ADR() { return ADR }, get INFO() { return INFO }, OMRAADER, mittOmraade, utenfor, get ME() { return ME },
+  select: (k) => select(k, false), closeDetail: () => closeDetail(), invalidate: () => map && map.invalidateSize(), get RAW() { return RAW }, get GEO() { return GEO }, get ADR() { return ADR }, get INFO() { return INFO }, OMRAADER, mittOmraade, utenfor, get ME() { return ME },
   async reloadKunder() {
     const [k, a, inf] = await Promise.all([sb.from("kunder").select("*"), sb.from("kunde_adresse").select("*"), sb.from("kunde_info").select("*")]);
     if (k.error) throw k.error;
