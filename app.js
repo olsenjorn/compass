@@ -236,6 +236,64 @@ function applyFix0(c) {
   return f ? Object.assign({}, c, { ps: f.poststed, lat: f.lat, lon: f.lon, r: f.region || c.r, pr: "rettet", rettAv: f.endret_av }) : c;
 }
 
+/* ---------------- potensial: omsetning hos Lindab mot kundens innkjøp (Regnskapsregisteret, samme tall som Proff) ---------------- */
+const POT_ANDEL = "kk_pot_andel";
+const potAndel = () => { const v = +store.get(POT_ANDEL, 40); return v > 0 && v <= 100 ? v : 40 };
+const mkr = v => v == null ? "–" : Math.abs(v) >= 1e6 ? (v / 1e6).toLocaleString("nb-NO", { maximumFractionDigits: 1 }) + " mill." : Math.round(v / 1000).toLocaleString("nb-NO") + " k";
+async function hentRegnskap(c) {
+  const u = await fetch("https://data.brreg.no/enhetsregisteret/api/underenheter/" + c.orgnr).then(r => r.ok ? r.json() : null).catch(() => null);
+  const hoved = (u && u.overordnetEnhet) || c.orgnr, key = "kk_regn3_" + hoved;
+  let cache = null; try { cache = JSON.parse(localStorage.getItem(key) || "null") } catch (e) { }
+  if (cache && Date.now() - cache.t < 7 * 864e5) return cache.d;
+  const [rg, ua] = await Promise.all([
+    sb.functions.invoke("regnskap", { body: { orgnr: [hoved] } }),
+    fetch("https://data.brreg.no/enhetsregisteret/api/underenheter?size=1&overordnetEnhet=" + hoved).then(r => r.ok ? r.json() : null).catch(() => null)
+  ]);
+  if (rg.error) throw new Error(rg.error.message || "feil");
+  const r = rg.data && rg.data.regnskap ? rg.data.regnskap[hoved] : null;
+  if (r && r.error) throw new Error(r.error);
+  const d = { hoved, r, avd: ua && ua.page ? ua.page.totalElements : null };
+  try { localStorage.setItem(key, JSON.stringify({ t: Date.now(), d })) } catch (e) { }
+  return d;
+}
+function potGauge(pst, farge) {
+  const p = Math.max(0, Math.min(100, pst)), a = Math.PI * (1 - p / 100), R = 52, cx = 64, cy = 62;
+  const x = cx + R * Math.cos(a), y = cy - R * Math.sin(a), stor = 0;
+  const bue = (fra, til, f) => { const a1 = Math.PI * (1 - fra / 100), a2 = Math.PI * (1 - til / 100); return `<path d="M${(cx + R * Math.cos(a1)).toFixed(1)} ${(cy - R * Math.sin(a1)).toFixed(1)} A${R} ${R} 0 0 1 ${(cx + R * Math.cos(a2)).toFixed(1)} ${(cy - R * Math.sin(a2)).toFixed(1)}" stroke="${f}" stroke-width="12" fill="none" opacity=".28"/>` };
+  return `<svg class="potgauge" viewBox="0 0 128 74" role="img" aria-label="${Math.round(pst)} prosent av potensialet">
+    ${bue(0, 15, "var(--late)")}${bue(15, 40, "var(--c4)")}${bue(40, 100, "var(--c2)")}
+    ${p > 0.5 ? `<path d="M${cx - R} ${cy} A${R} ${R} 0 ${stor} 1 ${x.toFixed(1)} ${y.toFixed(1)}" stroke="${farge}" stroke-width="12" fill="none" stroke-linecap="round"/>` : ""}
+    <line x1="${cx}" y1="${cy}" x2="${(cx + (R - 16) * Math.cos(a)).toFixed(1)}" y2="${(cy - (R - 16) * Math.sin(a)).toFixed(1)}" stroke="var(--ink)" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="${cx}" cy="${cy}" r="5" fill="var(--ink)"/>
+  </svg>`;
+}
+async function visPotensial(c) {
+  const box = () => st.sel === c.k ? $("dPot") : null;
+  const head = `<div class="pothead"><b>Utnyttelse av potensial</b></div>`;
+  if (!c.orgnr) { if (box()) box().innerHTML = head + `<div class="status">Mangler organisasjonsnummer, så regnskapet kan ikke hentes.</div>`; return }
+  let d; try { d = await hentRegnskap(c) } catch (e) { if (box()) box().innerHTML = head + `<div class="status">Fikk ikke hentet regnskap: ${esc(e.message)}</div>`; return }
+  const el = box(); if (!el) return;
+  const r = d.r;
+  if (!r || r.omsetning == null) { el.innerHTML = head + `<div class="status">Fant ikke noe årsregnskap i Brønnøysund (enkeltpersonforetak og nye selskap leverer ofte ikke).</div>`; return }
+  const kjop = r.driftskostnad != null && r.lonn != null && r.driftskostnad > r.lonn ? r.driftskostnad - r.lonn : r.omsetning * 0.4;
+  const anslag = !(r.driftskostnad != null && r.lonn != null && r.driftskostnad > r.lonn);
+  const andel = potAndel(), pot = kjop * andel / 100, pst = pot > 0 ? c.t / pot * 100 : 0;
+  const nivaa = pst >= 40 ? ["Høy", "var(--c2)"] : pst >= 15 ? ["Middels", "var(--c4)"] : ["Lav", "var(--late)"];
+  const proff = `https://www.proff.no/bransjesøk?q=${d.hoved}`;
+  el.innerHTML = `${head}
+    <div class="potrow">${potGauge(pst, nivaa[1])}
+      <div class="potnum"><b style="color:${nivaa[1]}">${Math.round(pst)} %</b><span>${nivaa[0]} utnyttelse</span></div></div>
+    <div class="potfakta">Lindab siste 12 mnd: <b>${mkr(c.t)}</b> av anslått potensial <b>${mkr(pot)}</b>${pot > c.t ? ` · uutnyttet ca. <b>${mkr(pot - c.t)}</b>` : " · over anslaget"}</div>
+    <details class="potgrunn"><summary>Slik er det regnet</summary>
+      <div>Regnskap ${r.aar || ""} for ${d.hoved === c.orgnr ? "kunden" : "selskapet avdelingen hører til"}: omsetning ${mkr(r.omsetning)}${anslag ? `. Kjøp anslått til 40 % av omsetningen` : `, driftskostnader ${mkr(r.driftskostnad)} − lønn ${mkr(r.lonn)} = <b>${mkr(kjop)}</b> i kjøp av varer og tjenester`}.</div>
+      <label class="potandel">Andel av kjøpene som er Lindab-relevante
+        <select id="potAndel">${[10, 20, 30, 40, 50, 60, 80].map(v => `<option value="${v}" ${v === andel ? "selected" : ""}>${v} %</option>`).join("")}</select></label>
+      ${d.avd > 1 ? `<div class="box warn">Selskapet har ${d.avd} avdelinger. Regnskapet gjelder hele selskapet, så potensialet kan være overvurdert hvis kundenummeret bare dekker én avdeling.</div>` : ""}
+      <div class="mut">Kilde: Regnskapsregisteret (samme tall som på Proff). <a href="${proff}" target="_blank" rel="noopener">Se på Proff ↗</a></div>
+    </details>`;
+  const sel = $("potAndel"); if (sel) sel.onchange = () => { store.set(POT_ANDEL, +sel.value); visPotensial(c) };
+}
+
 /* VBL-medlem: logo fra vbl.no, med tekstmerke som reserve hvis bildet ikke lastes */
 const VBL_IKON = `<a class="vblmerke" href="https://www.vbl.no/medlemsoversikt/" target="_blank" rel="noopener" title="Medlem i Ventilasjons- og blikkenslagerbedriftenes landsforbund (VBL)"><img src="img/vbl.png" alt="VBL-medlem" width="37" height="22" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'vbltxt',textContent:'VBL'}))"></a>`;
 /* ---------------- kundens nettside (public.kunde_nettside, deles med kollegaer i samme område) ---------------- */
@@ -559,6 +617,7 @@ function select(k, pan = true) {
     </dl>
     <div><div class="bar" title="Profil ${share} %"><span style="width:${share}%"></span><span style="width:${100 - share}%"></span></div>
       <div class="barlbl"><span>Profil ${kr(c.p)}</span><span>Ventilasjon ${kr(c.v)}</span></div></div>
+    <div class="potbox" id="dPot"><div class="pothead"><b>Utnyttelse av potensial</b></div><div class="status">Henter regnskap …</div></div>
     ${c.lat == null ? `<div class="box warn">Kunden mangler sted og vises ikke i kartet. Legg inn poststed under, så ser alle kunden i kartet.</div>` :
       rett ? `<div class="box warn">Sted satt av ${esc(rett.endret_av)}. Plassert midt i ${esc(c.ps)}.</div>` :
       c.pr === "adresse" ? `<div class="status">Adresse fra ${esc(c.akilde || "register")}${c.orgnr ? `, org.nr. ${esc(c.orgnr)}` : ""}${c.asikk && c.asikk !== "høy" ? ` · sikkerhet ${esc(c.asikk)}` : ""}.</div>` :
@@ -602,6 +661,7 @@ function select(k, pan = true) {
   $("detail").hidden = false;
   $("dx").onclick = closeDetail;
   visNettside(c);
+  visPotensial(c);
   // Proff kjenner selskapet, ikke alltid avdelingen: slå opp morselskapet i Enhetsregisteret og oppdater lenken
   if (c.orgnr && $("dProff")) fetch("https://data.brreg.no/enhetsregisteret/api/underenheter/" + c.orgnr).then(r => r.ok ? r.json() : null).then(u => {
     const el = $("dProff"); if (el && u && u.overordnetEnhet && st.sel === c.k) el.href = "https://www.proff.no/bransjesøk?q=" + u.overordnetEnhet;
