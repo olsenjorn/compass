@@ -81,7 +81,7 @@ function render() {
     const p = plans.find(x => x.id === el.dataset.p), di = +el.dataset.d; if (!p) return;
     const r = list.find(x => x.p === p && x.di === di && el.querySelector(".bkn b").textContent === (x.c.n || x.st.k)); if (!r) return;
     const save = async () => { const { error } = await KK().sb.from("ruteplaner").update({ data: p.data, endret: new Date().toISOString() }).eq("id", p.id); if (error) { err = error.message; render() } else if (window.KKPlan && window.KKPlan.plan && window.KKPlan.plan.id === p.id) window.KKPlan.openPlan(p.id, di) };
-    const sel = el.querySelector("[data-bs]"); if (sel && !sel.disabled) sel.onchange = () => { r.st.status = sel.value; save().then(render) };
+    const sel = el.querySelector("[data-bs]"); if (sel && !sel.disabled) sel.onchange = () => { r.st.status = sel.value; if (sel.value === "avtalt" && !r.st.avtalt && r.fra != null) r.st.avtalt = hm(r.fra); save().then(render) };
     const kt = el.querySelector("[data-bk]"); if (kt && !kt.readOnly) kt.onchange = () => { r.st.kontakt = kt.value.trim(); save() };
     const tt = el.querySelector("[data-bt]"); if (tt && !tt.readOnly) tt.onchange = () => { r.st.avtalt = tt.value; save().then(render) };
     el.querySelector("[data-open]").onclick = async () => { toggle(false); if (!window.KKPlan.open) await window.KKPlan.toggle(true); await window.KKPlan.openPlan(p.id, di) };

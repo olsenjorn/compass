@@ -177,7 +177,7 @@ function oppsummering(x) {
     const c = e.type === "kunde" ? kunde(e.k) : null;
     const st = e.status === "avtalt" ? `<span class="dok" title="Avtalt med kunden">✓</span>` : e.skip ? `<span class="mut">${esc(e.status)}</span>` : e.type === "kunde" ? `<span class="dplan" title="Ikke avtalt med kunden ennå">ikke avtalt</span>` : "";
     return `<li class="${fer ? "ferdig" : ""}${er ? " naa" : ""}${e.skip ? " skip" : ""}"><span class="t">${e.type === "lunsj" ? hm(e.fra) : hm(e.fra ?? e.ankomst)}</span>
-      <span class="n">${e.type === "avtale" ? "◆ " : e.type === "lunsj" ? "🥪 " : ""}${esc(e.navn)}${c && c.brr ? ` <span class="brrflag" title="${esc(c.brr.status)}">⚠</span>` : ""}<small>${esc(e.type === "lunsj" ? (e.underveis ? "underveis" : "") : stedNavn(e))}</small></span>${st}</li>`;
+      <span class="n">${e.type === "avtale" ? "◆ " : e.type === "lunsj" ? "🥪 " : ""}${esc(e.navn)}${c && c.brr ? ` <span class="brrflag" title="${esc(c.brr.status)}">⚠</span>` : ""}<small>${esc(e.type === "lunsj" ? (e.underveis ? "underveis" : "") : stedNavn(e))}${e.vent >= 10 ? ` · 🗂 ${dur(e.vent)} ledig til adm før` : ""}</small></span>${st}</li>`;
   };
   return `<div class="dsum">
       <div class="dkpi">
