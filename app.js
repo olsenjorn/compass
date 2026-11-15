@@ -595,12 +595,17 @@ function select(k, pan = true) {
     <div class="acts">
       <a class="btn pri" href="https://www.google.com/maps/search/?api=1&query=${q}" target="_blank" rel="noopener">Åpne i Google Maps ↗</a>
       ${c.lat != null ? `<button type="button" class="btn" id="dZoom">Vis i kart</button>` : ""}
+      <a class="btn" id="dProff" href="https://www.proff.no/bransjesøk?q=${encodeURIComponent(c.orgnr || c.n)}" target="_blank" rel="noopener">Proff ↗</a>
       ${rett ? `<button type="button" class="btn" id="dUnfix">Fjern rettelse</button>` : ""}
     </div>
     ${near}`;
   $("detail").hidden = false;
   $("dx").onclick = closeDetail;
   visNettside(c);
+  // Proff kjenner selskapet, ikke alltid avdelingen: slå opp morselskapet i Enhetsregisteret og oppdater lenken
+  if (c.orgnr && $("dProff")) fetch("https://data.brreg.no/enhetsregisteret/api/underenheter/" + c.orgnr).then(r => r.ok ? r.json() : null).then(u => {
+    const el = $("dProff"); if (el && u && u.overordnetEnhet && st.sel === c.k) el.href = "https://www.proff.no/bransjesøk?q=" + u.overordnetEnhet;
+  }).catch(() => { });
   if ($("dZoom")) $("dZoom").onclick = () => { showMap(); map.setView([c.lat, c.lon], Math.max(map.getZoom(), 12)) };
   if ($("dUnfix")) $("dUnfix").onclick = async () => {
     const { error } = await sb.from("sted_rettelse").delete().eq("kundenr", c.k);
