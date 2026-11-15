@@ -43,7 +43,7 @@ function mittOmraade() {
   return o[0] || "nord";
 }
 let CHARGERS = store.get("kk_chargers", null);
-const st = { q: "", reg: new Set(), by: new Set(), eier: new Set(), kat: new Set(), seg: new Set(), kj: new Set(), ko: new Set(), flag: new Set(), sort: store.get("kk_sort", "reg"), sel: null };
+const st = { pot: [0, 100], q: "", reg: new Set(), by: new Set(), eier: new Set(), kat: new Set(), seg: new Set(), kj: new Set(), ko: new Set(), flag: new Set(), sort: store.get("kk_sort", "reg"), sel: null };
 
 /* ---------------- innlogging ---------------- */
 function showLogin(msg) {
@@ -194,6 +194,7 @@ async function start() {
     $("lstatus").hidden = true;
     initMap();
     refreshData(true);
+    setTimeout(() => lastPotAlle(), 2500);  // regnskap for potensialfilteret, i bakgrunnen
     let nyttPw = false; try { nyttPw = sessionStorage.getItem("kk_nytt_pw") === "1" } catch (e) { }
     if (nyttPw) {
       try { sessionStorage.removeItem("kk_nytt_pw") } catch (e) { }
@@ -240,9 +241,78 @@ function applyFix0(c) {
 const POT_ANDEL = "kk_pot_andel";
 const potAndel = () => { const v = +store.get(POT_ANDEL, 40); return v > 0 && v <= 100 ? v : 40 };
 const mkr = v => v == null ? "–" : Math.abs(v) >= 1e6 ? (v / 1e6).toLocaleString("nb-NO", { maximumFractionDigits: 1 }) + " mill." : Math.round(v / 1000).toLocaleString("nb-NO") + " k";
+/* Regnskap for alle kunder på én gang (filteret «Utnyttelse av potensial»): Brreg-masseoppslag av avdelinger (100 per kall)
+   og serverfunksjonen «regnskap» (60 selskap per kall). Bufres i nettleseren i 7 dager. */
+let POTDATA = null, potLaster = null, potFeil = "";
+const POTKEY = "kk_potalle_v1";
+function potKjop(r) { return r && r.omsetning != null ? (r.driftskostnad != null && r.lonn != null && r.driftskostnad > r.lonn ? r.driftskostnad - r.lonn : r.omsetning * 0.4) : null }
+function potPst(c) {
+  if (!POTDATA || !c.orgnr) return null;
+  const h = POTDATA.hoved[c.orgnr] || c.orgnr, k = potKjop(POTDATA.regn[h]); if (!k) return null;
+  return c.t / (k * potAndel() / 100) * 100;
+}
+const potAktiv = () => st.pot[0] > 0 || st.pot[1] < 100;
+const potTekst = () => st.pot[1] >= 100 ? (st.pot[0] > 0 ? `${st.pot[0]} % eller mer` : "alle") : `${st.pot[0]}–${st.pot[1]} %`;
+async function lastPotAlle() {
+  if (POTDATA) return POTDATA;
+  if (potLaster) return potLaster;
+  try { const c = JSON.parse(localStorage.getItem(POTKEY) || "null"); if (c && Date.now() - c.t < 7 * 864e5) { POTDATA = c.d; return POTDATA } } catch (e) { }
+  potLaster = (async () => {
+    const orgnr = [...new Set(CUST().map(c => c.orgnr).filter(o => /^\d{9}$/.test(o || "")))];
+    const hoved = {}, avd = {}, regn = {};
+    for (let i = 0; i < orgnr.length; i += 100) {
+      const del = orgnr.slice(i, i + 100);
+      const j = await fetch("https://data.brreg.no/enhetsregisteret/api/underenheter?size=100&organisasjonsnummer=" + del.join(",")).then(r => r.ok ? r.json() : null).catch(() => null);
+      ((j && j._embedded && j._embedded.underenheter) || []).forEach(u => { if (u.overordnetEnhet) hoved[u.organisasjonsnummer] = u.overordnetEnhet });
+    }
+    const hl = [...new Set(orgnr.map(o => hoved[o] || o))];
+    for (let i = 0; i < hl.length; i += 60) {
+      const { data, error } = await sb.functions.invoke("regnskap", { body: { orgnr: hl.slice(i, i + 60) } });
+      if (error) throw new Error(error.message || "feil fra regnskapstjenesten");
+      Object.entries((data && data.regnskap) || {}).forEach(([o, r]) => { regn[o] = r && !r.error ? r : (r && r.error ? undefined : null) });
+      tegnPotFilter(`Henter regnskap … ${Math.min(i + 60, hl.length)} av ${hl.length} selskap`);
+    }
+    // antall avdelinger per selskap (for advarsel i kortet) – bare der kunden er en avdeling
+    POTDATA = { hoved, regn, avd };
+    try { localStorage.setItem(POTKEY, JSON.stringify({ t: Date.now(), d: POTDATA })) } catch (e) { }
+    return POTDATA;
+  })().catch(e => { potFeil = e.message || String(e); return null }).finally(() => { potLaster = null; tegnPotFilter(); if (potAktiv()) render(false) });
+  return potLaster;
+}
+function tegnPotFilter(melding) {
+  const el = $("fPot"); if (!el) return;
+  if (isPros()) { el.hidden = true; return } el.hidden = false;
+  const [a, b] = st.pot, med = POTDATA ? CUST().filter(c => potPst(c) != null).length : 0, alle = CUST().length;
+  const status = melding || (potFeil ? `Fikk ikke hentet regnskap: ${esc(potFeil)}` : !POTDATA ? "Henter regnskap …" : `Regnskap funnet for ${med} av ${alle} kunder${potAktiv() ? " – de uten regnskap skjules" : ""} · Lindab-andel ${potAndel()} % av kjøp`);
+  if (!el.dataset.bygd) {
+    el.dataset.bygd = "1";
+    el.innerHTML = `<div class="potflbl"><span class="seglbl">Utnyttelse av potensial</span><b id="potVerdi"></b></div>
+      <div class="dual" style="--a:${a};--b:${b}"><div class="dualspor"></div>
+        <input type="range" min="0" max="100" step="5" value="${a}" id="potMin" aria-label="Minste utnyttelse i prosent">
+        <input type="range" min="0" max="100" step="5" value="${b}" id="potMax" aria-label="Største utnyttelse i prosent (100 = 100 % eller mer)"></div>
+      <div class="dualskala"><span style="left:0">0 %</span><span style="left:15%">15</span><span style="left:40%">40</span><span style="left:100%">100+ %</span></div>
+      <div class="status" id="potStatus"></div>`;
+    const mi = $("potMin"), ma = $("potMax");
+    let t = null;
+    const endre = hvem => {
+      let x = +mi.value, y = +ma.value;
+      if (x > y) { if (hvem === "min") y = x; else x = y; mi.value = x; ma.value = y }
+      st.pot = [x, y]; tegnPotFilter();
+      if (potAktiv() && !POTDATA) lastPotAlle();
+      clearTimeout(t); t = setTimeout(() => { saveFilters(); renderActive(); render(false) }, 150);
+    };
+    mi.oninput = () => endre("min"); ma.oninput = () => endre("max");
+  }
+  const mi = $("potMin"), ma = $("potMax");
+  if (+mi.value !== a) mi.value = a; if (+ma.value !== b) ma.value = b;
+  el.querySelector(".dual").style.setProperty("--a", a); el.querySelector(".dual").style.setProperty("--b", b);
+  $("potVerdi").textContent = potTekst();
+  $("potStatus").innerHTML = status;
+}
 async function hentRegnskap(c) {
   const u = await fetch("https://data.brreg.no/enhetsregisteret/api/underenheter/" + c.orgnr).then(r => r.ok ? r.json() : null).catch(() => null);
   const hoved = (u && u.overordnetEnhet) || c.orgnr, key = "kk_regn3_" + hoved;
+  if (POTDATA && POTDATA.regn[hoved] !== undefined) return { hoved, r: POTDATA.regn[hoved], avd: POTDATA.avd[hoved] ?? null };
   let cache = null; try { cache = JSON.parse(localStorage.getItem(key) || "null") } catch (e) { }
   if (cache && Date.now() - cache.t < 7 * 864e5) return cache.d;
   const [rg, ua] = await Promise.all([
@@ -291,7 +361,7 @@ async function visPotensial(c) {
       ${d.avd > 1 ? `<div class="box warn">Selskapet har ${d.avd} avdelinger. Regnskapet gjelder hele selskapet, så potensialet kan være overvurdert hvis kundenummeret bare dekker én avdeling.</div>` : ""}
       <div class="mut">Kilde: Regnskapsregisteret (samme tall som på Proff). <a href="${proff}" target="_blank" rel="noopener">Se på Proff ↗</a></div>
     </details>`;
-  const sel = $("potAndel"); if (sel) sel.onchange = () => { store.set(POT_ANDEL, +sel.value); visPotensial(c) };
+  const sel = $("potAndel"); if (sel) sel.onchange = () => { store.set(POT_ANDEL, +sel.value); visPotensial(c); tegnPotFilter(); if (potAktiv()) render(false) };
 }
 
 /* VBL-medlem: logo fra vbl.no, med tekstmerke som reserve hvis bildet ikke lastes */
@@ -341,8 +411,9 @@ function loadFilters() {
   const f = store.get("kk_filters", null);
   ["reg", "by", "eier", "kat", "seg", "kj", "ko", "flag", "pros"].forEach(k => st[k] = new Set(f && Array.isArray(f[k]) ? f[k] : []));
   st.flag.delete("brr");  // Brreg-varsling er fjernet
+  st.pot = f && Array.isArray(f.pot) && f.pot.length === 2 ? f.pot.map(Number) : [0, 100];
 }
-function saveFilters() { store.set("kk_filters", Object.fromEntries(["reg", "by", "eier", "kat", "seg", "kj", "ko", "flag", "pros"].map(k => [k, [...st[k]]]))) }
+function saveFilters() { store.set("kk_filters", Object.assign(Object.fromEntries(["reg", "by", "eier", "kat", "seg", "kj", "ko", "flag", "pros"].map(k => [k, [...st[k]]])), { pot: st.pot })) }
 loadFilters();
 function count(key) { const m = {}; base().forEach(c => { const v = c[key] || NONE; m[v] = (m[v] || 0) + 1 }); return m }
 function optionsFor(k) {
@@ -377,6 +448,7 @@ function buildFilters() {
   $("fFlag").innerHTML = `<span class="seglbl">Vis bare</span>` + Object.entries(FLAGS).map(([k, l]) => `<button type="button" class="chip" data-flag="${k}" aria-pressed="${st.flag.has(k)}">${l} <span class="n">${CUST().filter(c => c[k]).length}</span></button>`).join("");
   $("fPros").innerHTML = `<span class="seglbl">Prospekter</span>` + [["bv", "Byggevarehus"], ["tak", "Takentreprenører >10 mill"]].map(([k, l]) => `<button type="button" class="chip" data-pros="${k}" aria-pressed="${st.pros.has(k)}" title="${esc(PROSF[k])}">${l} <span class="n">${DATA.filter(c => c.pro === k).length}</span></button>`).join("");
   syncProsMode();
+  tegnPotFilter();
   $("fSeg").innerHTML = `<span class="seglbl">Segment</span>` +
     ["A", "B", "C", "D"].map(s => `<button type="button" class="chip" data-seg="${s}" aria-pressed="${st.seg.has(s)}"><span class="dot" style="background:var(--seg${s})"></span>${s}</button>`).join("");
   syncFromState();
@@ -425,6 +497,7 @@ function renderActive() {
   [...st.flag].forEach(v => chips.push({ k: "flag", v, label: FLAGS[v] }));
   [...st.pros].forEach(v => chips.push({ k: "pros", v, label: PROSF[v] }));
   if (st.q.trim()) chips.push({ k: "q", v: st.q, label: `«${st.q.trim()}»` });
+  if (potAktiv() && !isPros()) chips.push({ k: "pot", v: "", label: `Potensial ${potTekst()}` });
   const A = $("activeF");
   A.hidden = !chips.length;
   A.innerHTML = chips.map(c => `<button type="button" class="achip" data-k="${c.k}" data-v="${esc(c.v)}" title="Fjern filter">${esc(c.label)}<span aria-hidden="true">×</span></button>`).join("") +
@@ -442,6 +515,7 @@ function filtered() {
     if (q && !(c.n.toLowerCase().includes(q) || c.k.includes(q) || c.ps.toLowerCase().includes(q) || c.kom.toLowerCase().includes(q) || c.br.toLowerCase().includes(q) || (c.adr || "").toLowerCase().includes(q))) return false;
     if (st.flag.has("vbl") && !c.vbl) return false;
     if (st.flag.has("bv") && !c.bv) return false;
+    if (potAktiv()) { const p = potPst(c); if (p == null || p < st.pot[0] || (st.pot[1] < 100 && p > st.pot[1])) return false }
     return inSet(st.reg, c.r) && inSet(st.by, c.ps) && inSet(st.eier, c.e) && inSet(st.kat, c.kat) && inSet(st.seg, c.s) && inSet(st.kj, c.kj) && inSet(st.ko, c.ko);
   });
 }
@@ -858,11 +932,12 @@ $("activeF").onclick = e => {
   if (k === "seg") document.querySelector(`[data-seg="${v}"]`).setAttribute("aria-pressed", "false");
   if (k === "flag") document.querySelector(`[data-flag="${v}"]`).setAttribute("aria-pressed", "false");
   if (k === "pros") { st.pros.delete(v); saveFilters(); buildFilters(); render(true); return }
+  if (k === "pot") { st.pot = [0, 100]; saveFilters(); tegnPotFilter(); renderActive(); render(true); return }
   if (FKEYS[k]) { const w = $("f" + k[0].toUpperCase() + k.slice(1)); w.querySelector(".msbtn").innerHTML = msButtonText(k) + `<span class="caret" aria-hidden="true">▾</span>` }
   saveFilters(); renderActive(); render(true);
 };
 $("sort").onchange = e => { st.sort = e.target.value; store.set("kk_sort", st.sort); render(false) };
-$("reset").onclick = () => { st.q = ""; ["reg", "by", "eier", "kat", "seg", "kj", "ko", "flag", "pros"].forEach(k => st[k].clear()); saveFilters(); buildFilters(); render(true) };
+$("reset").onclick = () => { st.q = ""; st.pot = [0, 100]; ["reg", "by", "eier", "kat", "seg", "kj", "ko", "flag", "pros"].forEach(k => st[k].clear()); saveFilters(); buildFilters(); render(true) };
 $("list").onclick = e => { const r = e.target.closest(".row"); if (r) select(r.dataset.k) };
 function showMap() {
   if (window.innerWidth <= 760) {
