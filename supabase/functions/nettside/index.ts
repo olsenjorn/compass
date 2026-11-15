@@ -1,8 +1,10 @@
-// nettside: leser kundens egen nettside (adressen hentes fra Enhetsregisteret, ikke fra klienten) og returnerer
+// nettside: leser kundens egen nettside og returnerer
 //  - lenker til offentlige profiler i sosiale medier som nettsiden selv lenker til (Facebook, Instagram, LinkedIn, YouTube, TikTok, X)
 //  - siste innlegg fra nettsidens nyhetsstrøm (RSS/Atom, f.eks. WordPress /feed) de siste 61 dagene.
 // Innhold fra sosiale medier hentes ikke: plattformene tillater ikke automatisk lesing.
-// Bare for innloggede brukere i public.tilgang. GET ?orgnr=123456789
+// Nettadressen tas aldri direkte fra klienten. Rekkefølge: selgernes egen oppføring (public.kunde_nettside, via RLS),
+// hjemmeside i Enhetsregisteret, og til slutt gjetting (navn.no) som bare godtas når siden viser org.nr. eller navnet.
+// Bare for innloggede brukere i public.tilgang. GET ?orgnr=123456789&k=kundenr&navn=Firmanavn
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 
 const CORS = {
@@ -51,6 +53,27 @@ async function hentTekst(url: string, ms = 8000): Promise<{ url: string; tekst: 
   return null;
 }
 
+// Kjernen i firmanavnet uten selskapsform og avdelingsnavn
+export function kjerne(n: string) {
+  return n.replace(/\b(avd(eling)?\.?)\s+.*$/i, "").replace(/\b(AS|ASA|ANS|DA|ENK|BA|SA|A\/S|KONKURSBO)\b\.?/gi, "")
+    .replace(/[^\p{L}\d\s&-]/gu, " ").replace(/\s+/g, " ").trim();
+}
+const ascii = (s: string, aa = false) => s.toLowerCase().replace(/æ/g, "ae").replace(/ø/g, "o").replace(/å/g, aa ? "aa" : "a").replace(/&/g, "og").replace(/[^a-z0-9 -]/g, "");
+export function gjett(navn: string): string[] {
+  const k = kjerne(navn); if (k.length < 3) return [];
+  const ut = new Set<string>();
+  for (const aa of [false, true]) { const w = ascii(k, aa).split(/[\s-]+/).filter(Boolean); if (!w.length) continue; ut.add(w.join("") + ".no"); if (w.length > 1) ut.add(w.join("-") + ".no") }
+  return [...ut].filter(d => d.length <= 40).slice(0, 4);
+}
+// Siden må vise org.nr. (med eller uten mellomrom) eller hele firmanavnet i tittel/overskrift
+export function bekreft(html: string, orgnr: string[], navn: string): boolean {
+  const flat = html.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ");
+  if (orgnr.some(o => o && new RegExp(o.replace(/(\d{3})(\d{3})(\d{3})/, "$1\\s?$2\\s?$3")).test(flat))) return true;
+  if (/(domene|domain).{0,40}(til salgs|for sale|parkert|parked)|this domain/i.test(flat)) return false;
+  const k = kjerne(navn).toLowerCase(); if (k.length < 5) return false;
+  const tittelTekst = ((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || "") + " " + ((html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i) || [])[1] || "");
+  return tittelTekst.toLowerCase().replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").includes(k);
+}
 const SOME: [string, RegExp][] = [
   ["Facebook", /^https?:\/\/(www\.|m\.|nb-no\.)?facebook\.com\/(?!sharer|share|dialog|plugins|tr\b|groups\/?$)[^\s"'<>?#]+/i],
   ["Instagram", /^https?:\/\/(www\.)?instagram\.com\/(?!p\/|explore)[^\s"'<>?#\/]+/i],
@@ -59,7 +82,7 @@ const SOME: [string, RegExp][] = [
   ["TikTok", /^https?:\/\/(www\.)?tiktok\.com\/@[^\s"'<>?#\/]+/i],
   ["X", /^https?:\/\/(www\.)?(twitter|x)\.com\/(?!share|intent|home)[^\s"'<>?#\/]+/i],
 ];
-function somelenker(html: string) {
+export function somelenker(html: string) {
   const ut: Record<string, string> = {};
   for (const m of html.matchAll(/href\s*=\s*["']([^"']+)["']/gi)) {
     const href = m[1].replace(/&amp;/g, "&").trim();
@@ -70,7 +93,7 @@ function somelenker(html: string) {
 const dekod = (s: string) => s.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1").replace(/<[^>]+>/g, " ")
   .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#0?39;|&apos;|&#8217;/g, "'").replace(/&#8211;/g, "–").replace(/&nbsp;/g, " ").replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n)).replace(/\s+/g, " ").trim();
 const felt = (x: string, t: string) => { const m = x.match(new RegExp(`<${t}[^>]*>([\\s\\S]*?)</${t}>`, "i")); return m ? dekod(m[1]) : "" };
-function lesStrom(xml: string, base: string) {
+export function lesStrom(xml: string, base: string) {
   const grense = Date.now() - DAGER * 864e5, ut: { tittel: string; lenke: string; dato: string; utdrag: string }[] = [];
   const poster = [...xml.matchAll(/<item[\s>]([\s\S]*?)<\/item>/gi), ...xml.matchAll(/<entry[\s>]([\s\S]*?)<\/entry>/gi)];
   for (const m of poster) {
@@ -101,17 +124,32 @@ Deno.serve(async (req) => {
     const orgnr = (new URL(req.url).searchParams.get("orgnr") ?? "").replace(/\D/g, "");
     if (orgnr.length !== 9) return json({ error: "Mangler organisasjonsnummer" }, 400);
 
-    // Nettadressen fra Enhetsregisteret: avdelingen først, så selskapet
+    const q = new URL(req.url).searchParams, kundenr = (q.get("k") ?? "").slice(0, 20), navn = (q.get("navn") ?? "").slice(0, 120);
     const br = async (sti: string) => { const r = await fetch("https://data.brreg.no/enhetsregisteret/api/" + sti, { headers: { Accept: "application/json" } }); return r.ok ? r.json() : null };
     const u = await br("underenheter/" + orgnr).catch(() => null);
-    const e = await br("enheter/" + (u?.overordnetEnhet ?? orgnr)).catch(() => null);
-    let hjem = (u?.hjemmeside || e?.hjemmeside || "").trim();
-    if (!hjem) return json({ nettside: null, some: [], innlegg: [] });
-    if (!/^https?:\/\//i.test(hjem)) hjem = "https://" + hjem;
+    const hovedNr = u?.overordnetEnhet ?? orgnr;
+    const e = await br("enheter/" + hovedNr).catch(() => null);
+    const firmanavn = String(e?.navn || navn || "");
 
-    let side = await hentTekst(hjem);
+    let hjem = "", kilde = "";
+    if (kundenr) {
+      const { data: lagret } = await userDb.from("kunde_nettside").select("url").eq("kundenr", kundenr).maybeSingle();
+      if (lagret?.url) { hjem = lagret.url; kilde = "lagret" }
+    }
+    if (!hjem && (u?.hjemmeside || e?.hjemmeside)) { hjem = String(u?.hjemmeside || e?.hjemmeside).trim(); kilde = "brreg" }
+    if (hjem && !/^https?:\/\//i.test(hjem)) hjem = "https://" + hjem;
+
+    let side = hjem ? await hentTekst(hjem) : null;
     if (!side && hjem.startsWith("https://")) side = await hentTekst(hjem.replace(/^https:/, "http:"));
-    if (!side) return json({ nettside: hjem, feil: "Fikk ikke kontakt med nettsiden", some: [], innlegg: [] });
+    if (!side && !hjem) {
+      // Gjetting: kun .no-domener laget av navnet, og bare hvis siden viser org.nr. eller firmanavnet
+      for (const k of gjett(firmanavn)) {
+        const s2 = await hentTekst("https://" + k, 5000) ?? await hentTekst("https://www." + k, 5000);
+        if (s2 && bekreft(s2.tekst, [orgnr, hovedNr], firmanavn)) { side = s2; hjem = s2.url; kilde = "gjettet"; break }
+      }
+    }
+    if (!hjem) return json({ nettside: null, kilde: null, some: [], innlegg: [] });
+    if (!side) return json({ nettside: hjem, kilde, feil: "Fikk ikke kontakt med nettsiden", some: [], innlegg: [] });
 
     const some = somelenker(side.tekst);
     // Nyhetsstrøm: lenket fra siden, ellers WordPress-standarden /feed
@@ -125,7 +163,7 @@ Deno.serve(async (req) => {
       const f = await hentTekst(k, 6000);
       if (f && /<(rss|feed)[\s>]/i.test(f.tekst)) { strom = k; innlegg = lesStrom(f.tekst, side.url); break }
     }
-    return json({ nettside: side.url, some, strom: strom || null, innlegg });
+    return json({ nettside: side.url, kilde, some, strom: strom || null, innlegg });
   } catch (e) {
     return json({ error: String((e as Error)?.message ?? e) }, 500);
   }

@@ -198,10 +198,10 @@ async function media(c) {
   const grense = Date.now() - 61 * 864e5;
   return { sok: data.sok, saker: (data.saker || []).filter(x => Date.parse(x.dato) >= grense).slice(0, 4) };
 }
-async function nettside(orgnr) {
-  const key = "kk_web_" + orgnr, c = ls.get(key);
+async function nettside(c0) {
+  const orgnr = c0.orgnr || "", key = "kk_web_" + c0.k, c = ls.get(key);
   if (c && Date.now() - c.t < 12 * 3600e3) return c.d;
-  const { data, error } = await KK().sb.functions.invoke(`nettside?orgnr=${orgnr}`, { method: "GET" });
+  const { data, error } = await KK().sb.functions.invoke(`nettside?orgnr=${encodeURIComponent(orgnr)}&k=${encodeURIComponent(c0.k)}&navn=${encodeURIComponent(c0.n)}`, { method: "GET" });
   if (error || !data || data.error) throw new Error((data && data.error) || (error && error.message) || "feil");
   ls.set(key, { t: Date.now(), d: data });
   return data;
@@ -228,7 +228,7 @@ async function hentFakta() {
   render();
   await Promise.all([
     (async () => { for (const e of fakta.liste) { try { e.med = await media(e.c) } catch (er) { e.med = { feil: true, saker: [] } } render() } })(),
-    (async () => { for (const e of fakta.liste) { try { e.web = e.c.orgnr ? await nettside(e.c.orgnr) : null } catch (er) { e.web = { feil: true } } render() } })()
+    (async () => { for (const e of fakta.liste) { try { e.web = e.c.orgnr ? await nettside(e.c) : null } catch (er) { e.web = { feil: true } } render() } })()
   ]);
 }
 const mill = v => v == null ? "" : Math.abs(v) >= 1e6 ? (v / 1e6).toLocaleString("nb-NO", { maximumFractionDigits: 1 }) + " mill." : Math.round(v / 1000).toLocaleString("nb-NO") + " k";
@@ -255,12 +255,15 @@ function faktaPunkter(e) {
 const SOMEIK = { Facebook: "f", Instagram: "◎", LinkedIn: "in", YouTube: "▶", TikTok: "♪", X: "𝕏" };
 function webHtml(e) {
   const w = e.web;
-  if (w === undefined) return e.br && e.br.web ? `<div class="dweb mut">Sjekker nettsiden …</div>` : "";
-  if (!w || w.feil || !w.nettside) return e.br && e.br.web ? `<a class="dweb" href="${esc(/^https?:/.test(e.br.web) ? e.br.web : "https://" + e.br.web)}" target="_blank" rel="noopener">${esc(e.br.web.replace(/^https?:\/\//, ""))} ↗</a>` : "";
+  const red = `<button type="button" class="dlink" data-webred="${esc(e.c.k)}">${w && w.nettside ? "Feil nettside?" : "+ Legg inn nettside"}</button>`;
+  if (w === undefined) return `<div class="dweb mut">Ser etter nettside …</div>`;
+  if (!w || !w.nettside) return `<div class="dmed dsome"><span class="lbl">Nettside</span><span class="mut">Fant ingen nettside${w && w.feil ? "" : " i Brønnøysund eller på navnet"}.</span>${red}</div>`;
+  if (w.feil) return `<div class="dmed dsome"><span class="lbl">Nettside</span><span class="mut">${esc(w.feil)}: ${esc(w.nettside)}</span>${red}</div>`;
   const host = w.nettside.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "");
-  return `<div class="dmed dsome"><span class="lbl">Fra egen nettside${w.innlegg && w.innlegg.length ? " siste 2 mnd" : ""}</span>
+  return `<div class="dmed dsome"><span class="lbl">Fra egen nettside${w.innlegg && w.innlegg.length ? " siste 2 mnd" : ""}${w.kilde === "gjettet" ? " · funnet automatisk" : ""}</span>
     ${w.innlegg && w.innlegg.length ? `<ul>${w.innlegg.slice(0, 3).map(n => `<li>${n.lenke ? `<a href="${esc(n.lenke)}" target="_blank" rel="noopener">${esc(n.tittel)}</a>` : `<b>${esc(n.tittel)}</b>`}<small>${new Date(n.dato).toLocaleDateString("nb-NO", { day: "numeric", month: "short" })}${n.utdrag ? " · " + esc(n.utdrag.slice(0, 110)) + (n.utdrag.length > 110 ? "…" : "") : ""}</small></li>`).join("")}</ul>` : w.strom ? `<span class="mut">Ingen nye innlegg på nettsiden.</span>` : ""}
     <div class="dsomel"><a class="schip" href="${esc(w.nettside)}" target="_blank" rel="noopener" title="Nettside">🌐 ${esc(host)}</a>${(w.some || []).map(x => `<a class="schip" href="${esc(x.url)}" target="_blank" rel="noopener" title="${esc(x.navn)}"><span class="sik">${SOMEIK[x.navn] || "↗"}</span>${esc(x.navn)}</a>`).join("")}</div>
+    ${red}
   </div>`;
 }
 function faktaHtml() {
@@ -367,6 +370,20 @@ function render() {
     </div>
     ${faktaHtml()}</div>`;
   $("dRef").onclick = () => last(true);
+  P.querySelectorAll("[data-webred]").forEach(b => b.onclick = () => {
+    const k = b.dataset.webred, e = fakta && fakta.liste.find(x => x.c.k === k); if (!e) return;
+    const f = document.createElement("form"); f.className = "dwebform";
+    f.innerHTML = `<input type="url" required placeholder="https://firma.no" value="${esc((e.web && e.web.nettside) || "")}" aria-label="Nettside for ${esc(e.c.n)}"><button class="btn sm pri">Lagre</button>${e.web && e.web.kilde === "lagret" ? `<button type="button" class="btn sm" data-fjern>Fjern</button>` : ""}<span class="mut" role="status"></span>`;
+    b.replaceWith(f); f.querySelector("input").focus();
+    const ferdig = async () => { try { localStorage.removeItem("kk_web_" + k) } catch (er) { } e.web = undefined; render(); try { e.web = await nettside(e.c) } catch (er) { e.web = { feil: true } } render() };
+    f.onsubmit = async ev => {
+      ev.preventDefault(); let url = f.querySelector("input").value.trim(); if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+      const { error } = await KK().sb.from("kunde_nettside").upsert({ kundenr: k, url, endret: new Date().toISOString() });
+      if (error) { f.querySelector("[role=status]").textContent = "Kunne ikke lagre: " + error.message; return }
+      ferdig();
+    };
+    const fj = f.querySelector("[data-fjern]"); if (fj) fj.onclick = async () => { await KK().sb.from("kunde_nettside").delete().eq("kundenr", k); ferdig() };
+  });
   P.querySelectorAll("[data-open]").forEach(b => b.onclick = async () => { const id = b.dataset.open, i = +b.dataset.day; toggle(false); if (!window.KKPlan.open) await window.KKPlan.toggle(true); await window.KKPlan.openPlan(id, i); document.dispatchEvent(new Event("kk:view")) });
   P.querySelectorAll("[data-go]").forEach(b => b.onclick = async () => {
     const g = b.dataset.go; toggle(false);
