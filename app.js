@@ -380,6 +380,7 @@ function filtered() {
   const inSet = (set, v) => !set.size || set.has(v || NONE);
   if (isPros()) return base().filter(c => {
     if (q && !(c.n.toLowerCase().includes(q) || (c.orgnr || "").includes(q) || c.ps.toLowerCase().includes(q) || (c.adr || "").toLowerCase().includes(q) || (c.kj || "").toLowerCase().includes(q))) return false;
+    if (st.flag.has("brr") && !c.brr) return false;
     return inSet(st.reg, c.r) && inSet(st.by, c.ps) && inSet(st.kj, c.kj);
   });
   return CUST().filter(c => {
