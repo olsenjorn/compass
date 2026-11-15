@@ -805,16 +805,18 @@ window.KK = {
 };
 /* ---------- toppmeny: faner og konto ---------- */
 function syncTabs() {
-  const cal = window.KKCal && window.KKCal.open, pl = window.KKPlan && window.KKPlan.open, bk = window.KKBook && window.KKBook.open;
-  $("tKunder").setAttribute("aria-pressed", !cal && !pl && !bk);
-  $("tPlan").setAttribute("aria-pressed", !cal && !bk && !!pl);
+  const cal = window.KKCal && window.KKCal.open, pl = window.KKPlan && window.KKPlan.open, bk = window.KKBook && window.KKBook.open, ds = window.KKDash && window.KKDash.open;
+  if ($("tDash")) $("tDash").setAttribute("aria-pressed", !!ds);
+  $("tKunder").setAttribute("aria-pressed", !ds && !cal && !pl && !bk);
+  $("tPlan").setAttribute("aria-pressed", !ds && !cal && !bk && !!pl);
   $("tCal").setAttribute("aria-pressed", !!cal);
   $("tBook").setAttribute("aria-pressed", !!bk);
 }
 document.addEventListener("kk:view", syncTabs);
 document.addEventListener("kk:profil", () => { if (CHARGERS && chargeLayer && map && map.hasLayer(chargeLayer)) drawChargers() });
-const closeBook = () => { if (window.KKBook && window.KKBook.open) window.KKBook.toggle(false) };
-$("tBook").onclick = () => { if (window.KKCal.open) window.KKCal.toggle(false); if (!window.KKBook.open) window.KKBook.toggle(true); syncTabs() };
+const closeBook = () => { if (window.KKDash && window.KKDash.open) window.KKDash.toggle(false); if (window.KKBook && window.KKBook.open) window.KKBook.toggle(false) };
+$("tDash").onclick = () => { if (!window.KKDash.open) window.KKDash.toggle(true); syncTabs() };
+$("tBook").onclick = () => { if (window.KKDash && window.KKDash.open) window.KKDash.toggle(false); if (window.KKCal.open) window.KKCal.toggle(false); if (!window.KKBook.open) window.KKBook.toggle(true); syncTabs() };
 $("tKunder").onclick = async () => { closeBook(); if (window.KKCal.open) window.KKCal.toggle(false); if (window.KKPlan.open) await window.KKPlan.toggle(false); syncTabs() };
 $("tPlan").onclick = async () => { closeBook(); if (window.KKCal.open) window.KKCal.toggle(false); if (!window.KKPlan.open) await window.KKPlan.toggle(true); syncTabs() };
 $("tCal").onclick = () => { closeBook(); if (!window.KKCal.open) window.KKCal.toggle(true); syncTabs() };

@@ -352,17 +352,17 @@ function scheduleSave() {
 function summary() {
   return plan.data.dager.map((d, i) => {
     const c = computed[i]; if (!c) return null;
-    const st = c.items[0];
+    const st = c.items[0], P = x => x && x.pt ? [+x.pt[0].toFixed(5), +x.pt[1].toFixed(5)] : null;
     return {
-      start: st.t, slutt: Math.round(c.end), km: Math.round(c.km), kjoring: Math.round(c.driveMin), besok: c.visits,
+      startPt: P(st), start: st.t, slutt: Math.round(c.end), km: Math.round(c.km), kjoring: Math.round(c.driveMin), besok: c.visits,
       fra: d.start.type === "fly" ? `Fly ${d.start.flyplass || ""}`.trim() : d.start.type === "hotell" ? (d.start.navn || "Hotell") : "Hjemme",
       stopp: c.items.filter(x => x.kind !== "start").map(x => x.kind === "kunde"
-        ? { n: x.n, type: "kunde", k: x.st.k, status: x.st.status || "planlagt", skip: !!x.skip, deltakere: (x.st.deltakere || []).map(kollNavn), kontakt: x.st.kontakt || "", navn: x.c ? x.c.n : x.st.k, sted: x.c ? [x.c.adr, x.c.ps].filter(Boolean).join(", ") : "", fra: Math.round(x.begin), til: Math.round(x.end), ankomst: Math.round(x.arr), kjoring: x.leg ? Math.round(x.leg.total) : 0 }
+        ? { n: x.n, type: "kunde", k: x.st.k, status: x.st.status || "planlagt", skip: !!x.skip, deltakere: (x.st.deltakere || []).map(kollNavn), kontakt: x.st.kontakt || "", navn: x.c ? x.c.n : x.st.k, sted: x.c ? [x.c.adr, x.c.ps].filter(Boolean).join(", ") : "", fra: Math.round(x.begin), til: Math.round(x.end), ankomst: Math.round(x.arr), kjoring: x.leg ? Math.round(x.leg.total) : 0, pt: P(x) }
         : x.kind === "avtale"
-        ? { n: x.n, type: "avtale", kat: x.st.kat, navn: avtNavn(x.st) + (x.st.virtuell ? ` (med ${kollNavn(x.st.med)})` : ""), sted: (AVT[x.st.kat] || {}).avd ? "Lindab " + AVT[x.st.kat].avd : (x.st.adr || x.st.sted || ""), fra: Math.round(x.begin), til: Math.round(x.end), ankomst: Math.round(x.arr), kjoring: x.leg ? Math.round(x.leg.total) : 0 }
+        ? { n: x.n, type: "avtale", kat: x.st.kat, navn: avtNavn(x.st) + (x.st.virtuell ? ` (med ${kollNavn(x.st.med)})` : ""), sted: (AVT[x.st.kat] || {}).avd ? "Lindab " + AVT[x.st.kat].avd : (x.st.adr || x.st.sted || ""), fra: Math.round(x.begin), til: Math.round(x.end), ankomst: Math.round(x.arr), kjoring: x.leg ? Math.round(x.leg.total) : 0, pt: P(x) }
         : x.kind === "lunsj"
         ? { n: x.n, type: "lunsj", navn: "Lunsj", fra: Math.round(x.begin), til: Math.round(x.end), ankomst: Math.round(x.begin), kjoring: 0, underveis: !!x.underveis }
-        : { n: x.n, type: d.slutt.type, navn: d.slutt.type === "hjem" ? "Hjem" : d.slutt.type === "fly" ? `Fly fra ${d.slutt.navn}${d.slutt.avgang ? " kl. " + d.slutt.avgang : ""}` : d.slutt.navn, sted: d.slutt.adr || "", ankomst: Math.round(x.arr), kjoring: x.leg ? Math.round(x.leg.total) : 0 })
+        : { n: x.n, type: d.slutt.type, navn: d.slutt.type === "hjem" ? "Hjem" : d.slutt.type === "fly" ? `Fly fra ${d.slutt.navn}${d.slutt.avgang ? " kl. " + d.slutt.avgang : ""}` : d.slutt.navn, sted: d.slutt.adr || "", ankomst: Math.round(x.arr), kjoring: x.leg ? Math.round(x.leg.total) : 0, pt: P(x) })
     };
   });
 }

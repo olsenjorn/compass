@@ -528,6 +528,72 @@ body.planning .legend{display:none}
 .prosnote{font-size:13px;color:var(--muted);background:var(--accent-soft);border-radius:8px;padding:8px 10px}
 .ptag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border-radius:4px;padding:1px 6px;color:var(--panel)}
 .ptag.bv{background:var(--pros-bv)}.ptag.tak{background:var(--pros-tak)}
+/* ---------- I dag (dashbord) ---------- */
+.main{position:relative}
+.dash{position:absolute;inset:0;z-index:1150;background:var(--bg);overflow:auto;-webkit-overflow-scrolling:touch}
+body.dashing .sum,body.dashing .switch{visibility:hidden}
+.dwrap{max-width:1180px;margin:0 auto;padding-block:18px 32px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:14px}
+.dhead{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.dhead h2{margin:0;font:700 30px/1.1 var(--f-display);text-wrap:balance}
+.dhead .mut{font-size:14px}
+.dbanner{justify-self:start;border:1px solid var(--avt);background:color-mix(in srgb,var(--avt) 12%,var(--panel));color:var(--ink);border-radius:8px;padding:8px 12px;font-weight:600;cursor:pointer;font-size:14px}
+.dgrid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);grid-template-areas:"day wx" "day hin";gap:14px;align-items:start}
+.dgrid>.dday{grid-area:day}.dgrid>.dcard:nth-child(2){grid-area:wx}.dgrid>.dcard:nth-child(3){grid-area:hin}
+@media (max-width:860px){.dgrid{grid-template-columns:minmax(0,1fr);grid-template-areas:"day" "wx" "hin"}}
+.dcard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;display:grid;gap:10px;min-width:0}
+.dcard h3{margin:0;font:600 13px var(--f-display);text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
+.dsum{display:grid;gap:12px}
+.dkpi{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.dkpi>div{background:var(--bg);border-radius:8px;padding:8px 10px;display:grid;min-width:0}
+.dkpi b{font:700 22px/1.15 var(--f-display);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dkpi span{font-size:12px;color:var(--muted)}
+.dnext{border-left:3px solid var(--brand);padding:4px 0 4px 10px;font-size:15px}
+.dnext .lbl{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.dlist{list-style:none;margin:0;padding:0;display:grid}
+.dlist li{display:grid;grid-template-columns:48px minmax(0,1fr) auto;gap:10px;align-items:baseline;padding:7px 0;border-bottom:1px solid var(--line)}
+.dlist li:last-child{border-bottom:0}
+.dlist .t{font-variant-numeric:tabular-nums;font-weight:600;color:var(--muted)}
+.dlist .n{min-width:0;overflow-wrap:anywhere}
+.dlist .n small{display:block;color:var(--muted);font-size:12px}
+.dlist li.ferdig{opacity:.55}
+.dlist li.naa .t,.dlist li.naa .n{color:var(--brand);font-weight:700}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .dlist li.naa .t,:root:not([data-theme="light"]) .dlist li.naa .n{color:var(--c0)}}
+:root[data-theme="dark"] .dlist li.naa .t,:root[data-theme="dark"] .dlist li.naa .n{color:var(--c0)}
+.dlist li.skip .n{text-decoration:line-through}
+.dok{color:var(--c2);font-weight:700}
+.dplan{font-size:11px;color:var(--muted);border:1px dashed var(--line);border-radius:4px;padding:0 5px;white-space:nowrap}
+.dflags{display:flex;flex-wrap:wrap;gap:6px}
+.dflags:empty{display:none}
+.dflag{font-size:13px;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:999px;padding:3px 10px;cursor:pointer;font-weight:600}
+.dflag.rod{border-color:var(--late);color:var(--late);cursor:default}
+.dacts{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.dacts .mut{font-size:12px}
+.dnone{display:grid;gap:4px}
+.dnone span{color:var(--muted)}
+.dwx{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.dwxnow{display:flex;gap:10px;align-items:center}
+.dwxnow .ik{font-size:38px;line-height:1}
+.dwxnow b{display:block;font:700 34px/1 var(--f-display)}
+.dwxnow span{font-size:13px;color:var(--muted)}
+.dwxmeta{font-size:13px;color:var(--muted);min-width:0;flex:1}
+.dwxmeta b{color:var(--ink)}
+.dwxrow{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.dwxrow li{display:grid;grid-template-columns:48px 24px 38px minmax(0,1fr);gap:6px;align-items:center;font-size:13px;padding:3px 0}
+.dwxrow .t{color:var(--muted);font-variant-numeric:tabular-nums}
+.dwxrow .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dwxwarn{font-size:13px;background:var(--warn-bg);color:var(--warn-ink);border-radius:6px;padding:6px 9px}
+.dsrc{font-size:11px;color:var(--muted)}
+.dhin{border:1px solid var(--line);border-left:4px solid var(--vk,var(--muted));border-radius:8px;padding:8px 10px;font-size:14px;background:var(--panel)}
+.dhin>summary,.dhin.ferje,.dhin.ok{display:flex;gap:10px;align-items:flex-start;cursor:pointer;list-style:none}
+.dhin>summary::-webkit-details-marker{display:none}
+.dhin .ik{font-size:18px;line-height:1.2;flex:none}
+.dhin small{display:block;color:var(--muted);font-size:12px}
+.dhin p{margin:8px 0 0;font-size:13px}
+.dhin .vegmeld{margin-top:8px}
+.dhin.fare{--vk:#d4a20b}.dhin.fare.orange{--vk:#e06c00}.dhin.fare.red{--vk:#c62828}
+.dhin.ferje{--vk:#0e7490;cursor:default}
+.dhin.ok{--vk:var(--c2);cursor:default}
+.dsmaa{font-size:13px}.dsmaa summary{cursor:pointer;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -590,6 +656,7 @@ body.planning .legend{display:none}
   </div>
   <nav class="tabs" aria-label="Hovedmeny">
     <div class="tabrow">
+      <button type="button" class="tab" id="tDash" aria-pressed="false">I dag</button>
       <button type="button" class="tab" id="tKunder" aria-pressed="true">Kunder</button>
       <button type="button" class="tab" id="tPlan" aria-pressed="false">Planlegger</button>
       <button type="button" class="tab" id="tCal" aria-pressed="false">Kalender</button>
@@ -608,6 +675,7 @@ body.planning .legend{display:none}
 </header>
 
 <div class="main" id="main" data-view="list">
+  <div class="dash" id="dash" hidden aria-label="I dag"></div>
   <aside class="rail">
     <div class="filters">
       <label class="f full">Søk
@@ -696,18 +764,19 @@ body.planning .legend{display:none}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=20261115a"></script>
-<script src="app.js?v=20261115a"></script>
-<script src="adresser.js?v=20261115a"></script>
-<script src="planner.js?v=20261115a"></script>
-<script src="calendar.js?v=20261115a"></script>
-<script src="invitasjoner.js?v=20261115a"></script>
-<script src="booking.js?v=20261115a"></script>
-<script src="profil.js?v=20261115a"></script>
-<script src="ferger.js?v=20261115a"></script>
-<script src="avdelinger.js?v=20261115a"></script>
-<script src="lunsj.js?v=20261115a"></script>
-<script src="kundedata.js?v=20261115a"></script>
-<script src="vegmeldinger.js?v=20261115a"></script>
+<script src="config.js?v=20261115b"></script>
+<script src="app.js?v=20261115b"></script>
+<script src="adresser.js?v=20261115b"></script>
+<script src="planner.js?v=20261115b"></script>
+<script src="calendar.js?v=20261115b"></script>
+<script src="invitasjoner.js?v=20261115b"></script>
+<script src="booking.js?v=20261115b"></script>
+<script src="profil.js?v=20261115b"></script>
+<script src="ferger.js?v=20261115b"></script>
+<script src="avdelinger.js?v=20261115b"></script>
+<script src="lunsj.js?v=20261115b"></script>
+<script src="kundedata.js?v=20261115b"></script>
+<script src="vegmeldinger.js?v=20261115b"></script>
+<script src="dashbord.js?v=20261115b"></script>
 </body>
 </html>
