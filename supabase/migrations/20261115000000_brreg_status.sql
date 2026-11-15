@@ -28,15 +28,21 @@ create policy "krev tofaktor" on public.brreg_status as restrictive for all to a
 revoke all on public.brreg_status from anon;
 grant select on public.brreg_status to authenticated;
 
-create or replace function public.brreg_sjekk()
+drop function if exists public.brreg_sjekk();
+-- Sjekker maks «porsjon» orgnr per kall (eldst sjekket først), så hver kjøring holder seg under tidsgrensen på 2 min.
+create or replace function public.brreg_sjekk(porsjon int default 60)
 returns jsonb
 language plpgsql security definer set search_path = '' as $$
 declare
   o text; r record; j jsonb; h jsonb; hs text; st text; dt date; typ text; hovn text; ikke_aktive int := 0; antall int := 0;
   hoved jsonb := '{}'::jsonb;  -- hurtigbuffer for morselskap i denne kjøringen
 begin
-  for o in select distinct x from (select orgnr x from public.kunde_adresse where orgnr ~ '^\d{9}$'
-                                   union select orgnr from public.prospekter where orgnr ~ '^\d{9}$') s loop
+  perform extensions.http_set_curlopt('CURLOPT_TIMEOUT', '8');
+  for o in select s.x from (select orgnr x from public.kunde_adresse where orgnr ~ '^\d{9}$'
+                            union select orgnr from public.prospekter where orgnr ~ '^\d{9}$') s
+           left join public.brreg_status b on b.orgnr = s.x
+           where b.sjekket is null or b.sjekket < now() - interval '20 hours'
+           order by b.sjekket nulls first limit porsjon loop
     antall := antall + 1; st := 'aktiv'; dt := null; typ := 'underenhet'; hs := null; hovn := null;
     select * into r from extensions.http_get('https://data.brreg.no/enhetsregisteret/api/underenheter/' || o);
     if r.status = 200 then
@@ -79,8 +85,9 @@ begin
   select count(*) into ikke_aktive from public.brreg_status where status <> 'aktiv';
   return jsonb_build_object('sjekket', antall, 'ikke_aktive', ikke_aktive);
 end $$;
-revoke execute on function public.brreg_sjekk() from public, anon, authenticated;
+revoke execute on function public.brreg_sjekk(int) from public, anon, authenticated;
 
--- Hver natt kl. 04:15 norsk tid (03:15 UTC vinterstid)
-select cron.unschedule('brreg-sjekk') where exists (select 1 from cron.job where jobname = 'brreg-sjekk');
-select cron.schedule('brreg-sjekk', '15 3 * * *', 'select public.brreg_sjekk()');
+-- Hver natt: hvert 5. minutt mellom 03:00 og 04:55 UTC (04–06 norsk vintertid), 60 orgnr per kjøring.
+-- Hver orgnr sjekkes én gang per natt; kjøringer uten noe igjen å sjekke gjør ingenting.
+select cron.unschedule(jobname) from cron.job where jobname in ('brreg-sjekk', 'brreg-forste');
+select cron.schedule('brreg-sjekk', '*/5 3-4 * * *', 'select public.brreg_sjekk()');
