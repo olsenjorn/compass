@@ -237,7 +237,7 @@ function applyFix0(c) {
 }
 
 /* VBL-medlem: logo fra vbl.no, med tekstmerke som reserve hvis bildet ikke lastes */
-const VBL_IKON = `<a class="vblmerke" href="https://www.vbl.no/medlemsoversikt/" target="_blank" rel="noopener" title="Medlem i Ventilasjons- og blikkenslagerbedriftenes landsforbund (VBL)"><img src="https://www.vbl.no/favicon.ico" alt="VBL-medlem" width="22" height="22" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'vbltxt',textContent:'VBL'}))"></a>`;
+const VBL_IKON = `<a class="vblmerke" href="https://www.vbl.no/medlemsoversikt/" target="_blank" rel="noopener" title="Medlem i Ventilasjons- og blikkenslagerbedriftenes landsforbund (VBL)"><img src="img/vbl.png" alt="VBL-medlem" width="37" height="22" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'vbltxt',textContent:'VBL'}))"></a>`;
 /* ---------------- kundens nettside (public.kunde_nettside, deles med kollegaer i samme område) ---------------- */
 const WEB = {};
 document.addEventListener("kk:nettside", e => { delete WEB[e.detail] });
