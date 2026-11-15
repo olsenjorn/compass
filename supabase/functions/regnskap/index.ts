@@ -19,7 +19,7 @@ function envKey(dictName: string, legacy: string): string | undefined {
   return Deno.env.get(legacy) ?? undefined;
 }
 
-type Regn = { omsetning: number | null; resultat: number | null; aar: number | null };
+type Regn = { omsetning: number | null; resultat: number | null; aar: number | null; varekostnad: number | null; driftskostnad: number | null };
 
 async function hent(orgnr: string): Promise<Regn | null> {
   const base = `https://data.brreg.no/regnskapsregisteret/regnskap/${orgnr}`;
@@ -34,7 +34,8 @@ async function hent(orgnr: string): Promise<Regn | null> {
     const aar = x?.regnskapsperiode?.tilDato ? Number(String(x.regnskapsperiode.tilDato).slice(0, 4)) : null;
     const oms = x?.resultatregnskapResultat?.driftsresultat?.driftsinntekter?.sumDriftsinntekter ?? null;
     const res = x?.resultatregnskapResultat?.ordinaertResultatFoerSkattekostnad ?? x?.resultatregnskapResultat?.aarsresultat ?? null;
-    if (!best || (aar ?? 0) > (best.aar ?? 0)) best = { omsetning: oms, resultat: res, aar };
+    const dk = x?.resultatregnskapResultat?.driftsresultat?.driftskostnad ?? {};
+    if (!best || (aar ?? 0) > (best.aar ?? 0)) best = { omsetning: oms, resultat: res, aar, varekostnad: dk.varekostnad ?? null, driftskostnad: dk.sumDriftskostnad ?? null };
   }
   return best;
 }
