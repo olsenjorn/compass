@@ -198,6 +198,14 @@ async function media(c) {
   const grense = Date.now() - 61 * 864e5;
   return { sok: data.sok, saker: (data.saker || []).filter(x => Date.parse(x.dato) >= grense).slice(0, 4) };
 }
+async function nettside(orgnr) {
+  const key = "kk_web_" + orgnr, c = ls.get(key);
+  if (c && Date.now() - c.t < 12 * 3600e3) return c.d;
+  const { data, error } = await KK().sb.functions.invoke(`nettside?orgnr=${orgnr}`, { method: "GET" });
+  if (error || !data || data.error) throw new Error((data && data.error) || (error && error.message) || "feil");
+  ls.set(key, { t: Date.now(), d: data });
+  return data;
+}
 // Kundene på dagen (eller neste reisedag), i besøksrekkefølge
 function dagensKunder() {
   const x = dag || neste; if (!x) return { x: null, liste: [] };
@@ -218,7 +226,10 @@ async function hentFakta() {
   const rg = hoveder.length ? await regnskap(hoveder).catch(() => ({})) : {};
   fakta.liste.forEach(e => e.regn = e.br ? rg[e.br.hoved] || null : null);
   render();
-  for (const e of fakta.liste) { try { e.med = await media(e.c) } catch (er) { e.med = { feil: true, saker: [] } } render() }
+  await Promise.all([
+    (async () => { for (const e of fakta.liste) { try { e.med = await media(e.c) } catch (er) { e.med = { feil: true, saker: [] } } render() } })(),
+    (async () => { for (const e of fakta.liste) { try { e.web = e.c.orgnr ? await nettside(e.c.orgnr) : null } catch (er) { e.web = { feil: true } } render() } })()
+  ]);
 }
 const mill = v => v == null ? "" : Math.abs(v) >= 1e6 ? (v / 1e6).toLocaleString("nb-NO", { maximumFractionDigits: 1 }) + " mill." : Math.round(v / 1000).toLocaleString("nb-NO") + " k";
 function faktaPunkter(e) {
@@ -241,6 +252,17 @@ function faktaPunkter(e) {
   if (c.t) ut.push(`Hos Lindab: <b>${mill(c.t)}</b> siste 12 mnd${c.s ? ` · segment ${esc(c.s)}` : ""}`);
   return ut;
 }
+const SOMEIK = { Facebook: "f", Instagram: "◎", LinkedIn: "in", YouTube: "▶", TikTok: "♪", X: "𝕏" };
+function webHtml(e) {
+  const w = e.web;
+  if (w === undefined) return e.br && e.br.web ? `<div class="dweb mut">Sjekker nettsiden …</div>` : "";
+  if (!w || w.feil || !w.nettside) return e.br && e.br.web ? `<a class="dweb" href="${esc(/^https?:/.test(e.br.web) ? e.br.web : "https://" + e.br.web)}" target="_blank" rel="noopener">${esc(e.br.web.replace(/^https?:\/\//, ""))} ↗</a>` : "";
+  const host = w.nettside.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "");
+  return `<div class="dmed dsome"><span class="lbl">Fra egen nettside${w.innlegg && w.innlegg.length ? " siste 2 mnd" : ""}</span>
+    ${w.innlegg && w.innlegg.length ? `<ul>${w.innlegg.slice(0, 3).map(n => `<li>${n.lenke ? `<a href="${esc(n.lenke)}" target="_blank" rel="noopener">${esc(n.tittel)}</a>` : `<b>${esc(n.tittel)}</b>`}<small>${new Date(n.dato).toLocaleDateString("nb-NO", { day: "numeric", month: "short" })}${n.utdrag ? " · " + esc(n.utdrag.slice(0, 110)) + (n.utdrag.length > 110 ? "…" : "") : ""}</small></li>`).join("")}</ul>` : w.strom ? `<span class="mut">Ingen nye innlegg på nettsiden.</span>` : ""}
+    <div class="dsomel"><a class="schip" href="${esc(w.nettside)}" target="_blank" rel="noopener" title="Nettside">🌐 ${esc(host)}</a>${(w.some || []).map(x => `<a class="schip" href="${esc(x.url)}" target="_blank" rel="noopener" title="${esc(x.navn)}"><span class="sik">${SOMEIK[x.navn] || "↗"}</span>${esc(x.navn)}</a>`).join("")}</div>
+  </div>`;
+}
 function faktaHtml() {
   if (!fakta || !fakta.x) return "";
   const { x, liste } = fakta;
@@ -253,9 +275,9 @@ function faktaHtml() {
       return `<article class="dfk"><header><b>${esc(e.c.n)}</b><span class="mut">${e.kl != null ? hm(e.kl) + " · " : ""}${esc(e.c.ps || "")}</span></header>
         <ul class="dfl">${p.length ? p.map(t => `<li>${t}</li>`).join("") : `<li class="mut">Fant ikke firmaet i Brønnøysund${e.c.orgnr ? "" : " (mangler org.nr.)"}.</li>`}</ul>
         <div class="dmed"><span class="lbl">I media siste 2 mnd</span>${m === undefined ? `<span class="mut">Søker …</span>` : m.feil ? `<span class="mut">Fikk ikke søkt i nyhetene.</span>` : m.saker.length ? `<ul>${m.saker.map(n => `<li><a href="${esc(n.lenke)}" target="_blank" rel="noopener">${esc(n.tittel)}</a><small>${esc(n.kilde)} · ${new Date(n.dato).toLocaleDateString("nb-NO", { day: "numeric", month: "short" })}</small></li>`).join("")}</ul>` : `<span class="mut">Ingen treff på «${esc(m.sok || e.c.n)}».</span>`}</div>
-        ${e.br && e.br.web ? `<a class="dweb" href="${esc(/^https?:/.test(e.br.web) ? e.br.web : "https://" + e.br.web)}" target="_blank" rel="noopener">${esc(e.br.web.replace(/^https?:\/\//, ""))} ↗</a>` : ""}
+        ${webHtml(e)}
       </article>` }).join("")}</div>
-    <div class="dsrc">Fakta: Brønnøysundregistrene · Media: Google Nyheter. Treff kan gjelde andre med samme navn.</div></section>`;
+    <div class="dsrc">Fakta: Brønnøysundregistrene · Media: Google Nyheter (treff kan gjelde andre med samme navn) · Nettside og profiler: kundens egen nettside. Innlegg på sosiale medier kan ikke hentes automatisk – trykk på profilen for å se dem.</div></section>`;
 }
 
 /* ---------- visning ---------- */
