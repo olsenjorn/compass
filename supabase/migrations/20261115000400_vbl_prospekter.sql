@@ -22,7 +22,7 @@ where not exists (select 1 from public.kunde_adresse a where a.orgnr = n.orgnr)
 on conflict (orgnr) do update set type = 'vbl', kjede = 'VBL-medlem', naering = excluded.naering, region = coalesce(excluded.region, public.prospekter.region);
 
 -- Omsetning fra siste årsregnskap (selskapsnivå)
-update public.prospekter p set omsetning = (r.content::jsonb -> 0 #>> '{resultatregnskapResultat,driftsresultat,driftsinntekter,sumDriftsinntekter}')::bigint,
+update public.prospekter p set omsetning = (r.content::jsonb -> 0 #>> '{resultatregnskapResultat,driftsresultat,driftsinntekter,sumDriftsinntekter}')::numeric::bigint,
   regnskapsaar = left(r.content::jsonb -> 0 #>> '{regnskapsperiode,tilDato}', 4)::int
 from (select distinct hovedorgnr from public.prospekter where type = 'vbl') h,
   lateral extensions.http_get('https://data.brreg.no/regnskapsregisteret/regnskap/' || h.hovedorgnr) r
