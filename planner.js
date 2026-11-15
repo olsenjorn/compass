@@ -22,10 +22,12 @@ const FLYPLASSER = [
 ];
 const JORN_HOME = "Eidhaugsvingen 6, 9105 Kvaløya";
 const prof = () => (window.KKProfil && window.KKProfil.p) || {};
+// Sist brukte hjemmeadresse i nettleseren, knyttet til innlogget bruker (deles ikke mellom brukere på samme maskin)
+const homeKey = () => "kk_home:" + ((me() && me().epost) || "");
 // Hjemmeadresse fra profilen; ellers sist brukte hjem, ellers sentrum i brukerens område
 const homeOf = () => {
   const h = prof().hjem; if (h && h.lat != null) return { adresse: h.adresse, lat: h.lat, lon: h.lon };
-  const s = store.get("kk_home", null); if (s && s.lat != null) return s;
+  const s = store.get(homeKey(), null); if (s && s.lat != null) return s;
   const K = window.KK, O = K && K.OMRAADER && K.OMRAADER[K.mittOmraade()];
   return O ? { ...O.hjem } : { adresse: "Tromsø sentrum", lat: 69.6496, lon: 18.956 };
 };
@@ -168,7 +170,7 @@ const kunde = k => KK().DATA.find(c => c.k === k);
 async function ensureHome(day) {
   if (day.start.type === "hjem" && (day.start.lat == null)) {
     const g = await window.KKAdr.geocodeFree(day.start.navn || DEFAULT_HOME_TXT()).catch(() => null);
-    if (g) { day.start.lat = g.lat; day.start.lon = g.lon; day.start.navn = `${g.adresse}, ${g.postnr} ${g.poststed}`; store.set("kk_home", { adresse: day.start.navn, lat: g.lat, lon: g.lon }) }
+    if (g) { day.start.lat = g.lat; day.start.lon = g.lon; day.start.navn = `${g.adresse}, ${g.postnr} ${g.poststed}`; store.set(homeKey(), { adresse: day.start.navn, lat: g.lat, lon: g.lon }) }
   }
 }
 const SYM = { hjem: "⌂", hotell: "H", fly: "✈" };
@@ -1057,7 +1059,7 @@ function bind() {
     const g = await window.KKAdr.geocodeFree(v).catch(() => null);
     if (!g) { flash("Fant ikke adressen. Skriv gate, nummer og postnummer."); return }
     Object.assign(d.start, { navn: d.start.type === "hotell" && !/\d{4}/.test(v) ? v : `${g.adresse}, ${g.postnr} ${g.poststed}`, lat: g.lat, lon: g.lon });
-    if (d.start.type === "hjem") store.set("kk_home", { adresse: d.start.navn, lat: g.lat, lon: g.lon });
+    if (d.start.type === "hjem") store.set(homeKey(), { adresse: d.start.navn, lat: g.lat, lon: g.lon });
     change();
   };
   document.querySelectorAll("#planner [data-f]").forEach(inp => inp.onchange = () => {

@@ -26,11 +26,14 @@ async function load() {
   const { data } = await sb.from("profil").select("data").maybeSingle();
   P = { ...DEF, ...((data && data.data) || {}) };
   // tidligere lagret hjemmeadresse i nettleseren tas med første gang
-  if (!P.hjem) { try { const h = JSON.parse(localStorage.getItem("kk_home") || "null"); if (h && h.lat != null) P.hjem = { adresse: h.adresse, lat: h.lat, lon: h.lon } } catch (e) { } }
+  // tidligere versjon lagret adressen uten brukertilknytning: fjern den, så den ikke kan følge med til en annen bruker
+  try { localStorage.removeItem("kk_home") } catch (e) { }
+  if (!P.hjem) { try { const h = JSON.parse(localStorage.getItem(homeKey()) || "null"); if (h && h.lat != null) P.hjem = { adresse: h.adresse, lat: h.lat, lon: h.lon } } catch (e) { } }
   loaded = true; syncLocal(); drawHome();
   document.dispatchEvent(new Event("kk:profil"));
 }
-function syncLocal() { if (P.hjem) try { localStorage.setItem("kk_home", JSON.stringify({ adresse: P.hjem.adresse, lat: P.hjem.lat, lon: P.hjem.lon })) } catch (e) { } }
+const homeKey = () => "kk_home:" + ((KK() && KK().ME && KK().ME.epost) || "");
+function syncLocal() { if (P.hjem) try { localStorage.setItem(homeKey(), JSON.stringify({ adresse: P.hjem.adresse, lat: P.hjem.lat, lon: P.hjem.lon })) } catch (e) { } }
 async function save(next) {
   P = { ...P, ...next };
   const { error } = await KK().sb.from("profil").upsert({ epost: KK().ME.epost, data: P, endret: new Date().toISOString() });

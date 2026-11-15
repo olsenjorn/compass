@@ -35,7 +35,7 @@ async function hentDager() {
 /* ---------- punkter og etapper for dagen ---------- */
 function hjem() {
   const p = window.KKProfil && window.KKProfil.p; if (p && p.hjem && p.hjem.lat != null) return [p.hjem.lat, p.hjem.lon];
-  try { const h = JSON.parse(localStorage.getItem("kk_home") || "null"); if (h && h.lat != null) return [h.lat, h.lon] } catch (e) { }
+  try { const h = JSON.parse(localStorage.getItem("kk_home:" + ((KK().ME && KK().ME.epost) || "")) || "null"); if (h && h.lat != null) return [h.lat, h.lon] } catch (e) { }
   const o = KK().OMRAADER && KK().mittOmraade && KK().OMRAADER[KK().mittOmraade()]; return o && o.hjem ? [o.hjem.lat, o.hjem.lon] : null;
 }
 const kunde = k => (KK().DATA || []).find(c => c.k === k);
