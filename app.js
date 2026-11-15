@@ -238,18 +238,49 @@ function applyFix0(c) {
 }
 
 /* ---------------- potensial: omsetning hos Lindab mot kundens innkjøp (Regnskapsregisteret, samme tall som Proff) ---------------- */
-const POT_ANDEL = "kk_pot_andel";
-const potAndel = () => { const v = +store.get(POT_ANDEL, 40); return v > 0 && v <= 100 ? v : 40 };
+/* Hvor stor del av kundens innkjøp som realistisk kan være Lindab-produkter, ut fra bransje (næringskode i Enhetsregisteret).
+   En byggmester kjøper mest trelast o.l. hos byggevarehandelen, en blikkenslager kjøper mye av det Lindab selger. */
+const BRANSJE_ANDEL = [
+  [/^43\.91/, 50, "Takarbeid / blikkenslager"],
+  [/^43\.223/, 50, "Ventilasjon og klima"],
+  [/^25\.1/, 40, "Metallkonstruksjoner"],
+  [/^25\./, 25, "Metallvarer"],
+  [/^43\.222/, 15, "Varmeanlegg"],
+  [/^43\.221/, 10, "Rørlegger"],
+  [/^43\.29/, 20, "Annen installasjon"],
+  [/^43\.99/, 15, "Annen spesialisert bygg"],
+  [/^46\.(73|74)|^47\.52/, 8, "Byggevarehandel"],
+  [/^41\.|^43\.3/, 5, "Byggmester / ferdiggjøring"],
+  [/^42\./, 5, "Anlegg"],
+  [/^43\.1/, 3, "Grunnarbeid"],
+  [/^7[01]\./, 0, "Rådgivning (kjøper ikke varer)"],
+];
+const ANDEL_VALG = [0, 3, 5, 10, 15, 20, 30, 40, 50, 60, 80];
+function standardAndel(c, kode) {
+  // Bransjen registrert på kunden går foran næringskoden. Flere bransjer: den mest relevante for Lindab teller.
+  const REG = [[/ventilasjon|blikk/, 50], [/bygghandel/, 8], [/byggentrepren/, 5], [/eiendom/, 3]];
+  const treff = (c.br || "").split(";").map(b => { const t = REG.find(([re]) => re.test(b.toLowerCase())); return t ? [t[1], b] : null }).filter(Boolean).sort((x, y) => y[0] - x[0]);
+  if (treff.length) return { andel: treff[0][0], grunn: "registrert bransje: " + treff[0][1] };
+  for (const [re, a, navn] of BRANSJE_ANDEL) if (kode && re.test(kode)) return { andel: a, grunn: navn };
+  return { andel: 15, grunn: kode ? "annen bransje" : "ukjent bransje" };
+}
+const andelKey = c => "kk_pot_andel_" + c.k;
+function andelFor(c, kode) {
+  const o = store.get(andelKey(c), null);
+  const std = standardAndel(c, kode);
+  return o != null && ANDEL_VALG.includes(+o) ? { andel: +o, grunn: "satt manuelt", std } : { ...std, std };
+}
 const mkr = v => v == null ? "–" : Math.abs(v) >= 1e6 ? (v / 1e6).toLocaleString("nb-NO", { maximumFractionDigits: 1 }) + " mill." : Math.round(v / 1000).toLocaleString("nb-NO") + " k";
 /* Regnskap for alle kunder på én gang (filteret «Utnyttelse av potensial»): Brreg-masseoppslag av avdelinger (100 per kall)
    og serverfunksjonen «regnskap» (60 selskap per kall). Bufres i nettleseren i 7 dager. */
 let POTDATA = null, potLaster = null, potFeil = "";
-const POTKEY = "kk_potalle_v1";
+const POTKEY = "kk_potalle_v2";
 function potKjop(r) { return r && r.omsetning != null ? (r.driftskostnad != null && r.lonn != null && r.driftskostnad > r.lonn ? r.driftskostnad - r.lonn : r.omsetning * 0.4) : null }
 function potPst(c) {
   if (!POTDATA || !c.orgnr) return null;
   const h = POTDATA.hoved[c.orgnr] || c.orgnr, k = potKjop(POTDATA.regn[h]); if (!k) return null;
-  return c.t / (k * potAndel() / 100) * 100;
+  const a = andelFor(c, (POTDATA.nace[h] || [])[0]).andel; if (!a) return null;   // bransje uten Lindab-potensial
+  return c.t / (k * a / 100) * 100;
 }
 const potAktiv = () => st.pot[0] > 0 || st.pot[1] < 100;
 const potTekst = () => st.pot[1] >= 100 ? (st.pot[0] > 0 ? `${st.pot[0]} % eller mer` : "alle") : `${st.pot[0]}–${st.pot[1]} %`;
@@ -265,7 +296,11 @@ async function lastPotAlle() {
       const j = await fetch("https://data.brreg.no/enhetsregisteret/api/underenheter?size=100&organisasjonsnummer=" + del.join(",")).then(r => r.ok ? r.json() : null).catch(() => null);
       ((j && j._embedded && j._embedded.underenheter) || []).forEach(u => { if (u.overordnetEnhet) hoved[u.organisasjonsnummer] = u.overordnetEnhet });
     }
-    const hl = [...new Set(orgnr.map(o => hoved[o] || o))];
+    const hl = [...new Set(orgnr.map(o => hoved[o] || o))], nace = {};
+    for (let i = 0; i < hl.length; i += 100) {
+      const j = await fetch("https://data.brreg.no/enhetsregisteret/api/enheter?size=100&organisasjonsnummer=" + hl.slice(i, i + 100).join(",")).then(r => r.ok ? r.json() : null).catch(() => null);
+      ((j && j._embedded && j._embedded.enheter) || []).forEach(e => { if (e.naeringskode1) nace[e.organisasjonsnummer] = [e.naeringskode1.kode, e.naeringskode1.beskrivelse] });
+    }
     for (let i = 0; i < hl.length; i += 60) {
       const { data, error } = await sb.functions.invoke("regnskap", { body: { orgnr: hl.slice(i, i + 60) } });
       if (error) throw new Error(error.message || "feil fra regnskapstjenesten");
@@ -273,7 +308,7 @@ async function lastPotAlle() {
       tegnPotFilter(`Henter regnskap … ${Math.min(i + 60, hl.length)} av ${hl.length} selskap`);
     }
     // antall avdelinger per selskap (for advarsel i kortet) – bare der kunden er en avdeling
-    POTDATA = { hoved, regn, avd };
+    POTDATA = { hoved, regn, avd, nace };
     try { localStorage.setItem(POTKEY, JSON.stringify({ t: Date.now(), d: POTDATA })) } catch (e) { }
     return POTDATA;
   })().catch(e => { potFeil = e.message || String(e); return null }).finally(() => { potLaster = null; tegnPotFilter(); if (potAktiv()) render(false) });
@@ -283,7 +318,7 @@ function tegnPotFilter(melding) {
   const el = $("fPot"); if (!el) return;
   if (isPros()) { el.hidden = true; return } el.hidden = false;
   const [a, b] = st.pot, med = POTDATA ? CUST().filter(c => potPst(c) != null).length : 0, alle = CUST().length;
-  const status = melding || (potFeil ? `Fikk ikke hentet regnskap: ${esc(potFeil)}` : !POTDATA ? "Henter regnskap …" : `Regnskap funnet for ${med} av ${alle} kunder${potAktiv() ? " – de uten regnskap skjules" : ""} · Lindab-andel ${potAndel()} % av kjøp`);
+  const status = melding || (potFeil ? `Fikk ikke hentet regnskap: ${esc(potFeil)}` : !POTDATA ? "Henter regnskap …" : `Beregnet for ${med} av ${alle} kunder${potAktiv() ? " – de uten regnskap eller relevant bransje skjules" : ""} · Lindab-andel av kjøp etter bransje`);
   if (!el.dataset.bygd) {
     el.dataset.bygd = "1";
     el.innerHTML = `<div class="potflbl"><span class="seglbl">Utnyttelse av potensial</span><b id="potVerdi"></b></div>
@@ -311,18 +346,19 @@ function tegnPotFilter(melding) {
 }
 async function hentRegnskap(c) {
   const u = await fetch("https://data.brreg.no/enhetsregisteret/api/underenheter/" + c.orgnr).then(r => r.ok ? r.json() : null).catch(() => null);
-  const hoved = (u && u.overordnetEnhet) || c.orgnr, key = "kk_regn3_" + hoved;
-  if (POTDATA && POTDATA.regn[hoved] !== undefined) return { hoved, r: POTDATA.regn[hoved], avd: POTDATA.avd[hoved] ?? null };
+  const hoved = (u && u.overordnetEnhet) || c.orgnr, key = "kk_regn4_" + hoved;
+  if (POTDATA && POTDATA.regn[hoved] !== undefined && POTDATA.nace) return { hoved, r: POTDATA.regn[hoved], avd: POTDATA.avd[hoved] ?? null, nace: POTDATA.nace[hoved] || null };
   let cache = null; try { cache = JSON.parse(localStorage.getItem(key) || "null") } catch (e) { }
   if (cache && Date.now() - cache.t < 7 * 864e5) return cache.d;
-  const [rg, ua] = await Promise.all([
+  const [rg, ua, en] = await Promise.all([
     sb.functions.invoke("regnskap", { body: { orgnr: [hoved] } }),
-    fetch("https://data.brreg.no/enhetsregisteret/api/underenheter?size=1&overordnetEnhet=" + hoved).then(r => r.ok ? r.json() : null).catch(() => null)
+    fetch("https://data.brreg.no/enhetsregisteret/api/underenheter?size=1&overordnetEnhet=" + hoved).then(r => r.ok ? r.json() : null).catch(() => null),
+    fetch("https://data.brreg.no/enhetsregisteret/api/enheter/" + hoved).then(r => r.ok ? r.json() : null).catch(() => null)
   ]);
   if (rg.error) throw new Error(rg.error.message || "feil");
   const r = rg.data && rg.data.regnskap ? rg.data.regnskap[hoved] : null;
   if (r && r.error) throw new Error(r.error);
-  const d = { hoved, r, avd: ua && ua.page ? ua.page.totalElements : null };
+  const d = { hoved, r, avd: ua && ua.page ? ua.page.totalElements : null, nace: en && en.naeringskode1 ? [en.naeringskode1.kode, en.naeringskode1.beskrivelse] : null };
   try { localStorage.setItem(key, JSON.stringify({ t: Date.now(), d })) } catch (e) { }
   return d;
 }
@@ -347,7 +383,15 @@ async function visPotensial(c) {
   if (!r || r.omsetning == null) { el.innerHTML = head + `<div class="status">Fant ikke noe årsregnskap i Brønnøysund (enkeltpersonforetak og nye selskap leverer ofte ikke).</div>`; return }
   const kjop = r.driftskostnad != null && r.lonn != null && r.driftskostnad > r.lonn ? r.driftskostnad - r.lonn : r.omsetning * 0.4;
   const anslag = !(r.driftskostnad != null && r.lonn != null && r.driftskostnad > r.lonn);
-  const andel = potAndel(), pot = kjop * andel / 100, pst = pot > 0 ? c.t / pot * 100 : 0;
+  const A = andelFor(c, d.nace && d.nace[0]), andel = A.andel, pot = kjop * andel / 100, pst = pot > 0 ? c.t / pot * 100 : 0;
+  const bransje = d.nace ? `${esc(d.nace[1])} (${esc(d.nace[0])})` : "ukjent næringskode";
+  const velg = () => `<select id="potAndel"><option value="std" ${A.grunn !== "satt manuelt" ? "selected" : ""}>Standard for bransjen (${A.std.andel} %)</option>${ANDEL_VALG.map(v => `<option value="${v}" ${A.grunn === "satt manuelt" && v === andel ? "selected" : ""}>${v} %</option>`).join("")}</select>`;
+  const koble = () => { const sel = $("potAndel"); if (sel) sel.onchange = () => { if (sel.value === "std") { try { localStorage.removeItem(andelKey(c)) } catch (e) { } } else store.set(andelKey(c), +sel.value); visPotensial(c); tegnPotFilter(); if (potAktiv()) render(false) } };
+  if (!andel) {
+    el.innerHTML = `${head}<div class="status">Bransjen (${bransje}) kjøper normalt ikke Lindab-produkter, så potensial beregnes ikke.</div>
+      <label class="potandel">Lindab-relevant andel for denne kunden ${velg()}</label>`;
+    koble(); return;
+  }
   const nivaa = pst >= 40 ? ["Høy", "var(--c2)"] : pst >= 15 ? ["Middels", "var(--c4)"] : ["Lav", "var(--late)"];
   const proff = `https://www.proff.no/bransjesøk?q=${d.hoved}`;
   el.innerHTML = `${head}
@@ -356,12 +400,12 @@ async function visPotensial(c) {
     <div class="potfakta">Lindab siste 12 mnd: <b>${mkr(c.t)}</b> av anslått potensial <b>${mkr(pot)}</b>${pot > c.t ? ` · uutnyttet ca. <b>${mkr(pot - c.t)}</b>` : " · over anslaget"}</div>
     <details class="potgrunn"><summary>Slik er det regnet</summary>
       <div>Regnskap ${r.aar || ""} for ${d.hoved === c.orgnr ? "kunden" : "selskapet avdelingen hører til"}: omsetning ${mkr(r.omsetning)}${anslag ? `. Kjøp anslått til 40 % av omsetningen` : `, driftskostnader ${mkr(r.driftskostnad)} − lønn ${mkr(r.lonn)} = <b>${mkr(kjop)}</b> i kjøp av varer og tjenester`}.</div>
-      <label class="potandel">Andel av kjøpene som er Lindab-relevante
-        <select id="potAndel">${[10, 20, 30, 40, 50, 60, 80].map(v => `<option value="${v}" ${v === andel ? "selected" : ""}>${v} %</option>`).join("")}</select></label>
+      <div>Bransje: ${bransje}. Lindab-relevant andel av kjøpene: <b>${andel} %</b> (${esc(A.grunn)}).</div>
+      <label class="potandel">Endre for denne kunden ${velg()}</label>
       ${d.avd > 1 ? `<div class="box warn">Selskapet har ${d.avd} avdelinger. Regnskapet gjelder hele selskapet, så potensialet kan være overvurdert hvis kundenummeret bare dekker én avdeling.</div>` : ""}
       <div class="mut">Kilde: Regnskapsregisteret (samme tall som på Proff). <a href="${proff}" target="_blank" rel="noopener">Se på Proff ↗</a></div>
     </details>`;
-  const sel = $("potAndel"); if (sel) sel.onchange = () => { store.set(POT_ANDEL, +sel.value); visPotensial(c); tegnPotFilter(); if (potAktiv()) render(false) };
+  koble();
 }
 
 /* VBL-medlem: logo fra vbl.no, med tekstmerke som reserve hvis bildet ikke lastes */
