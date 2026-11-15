@@ -500,7 +500,7 @@ function loadHotelsNN() {
   if (!loadHotelsNN.live) {
     // Fast hotellregister for Nord-Norge som følger med appen (OpenStreetMap) – lastes umiddelbart
     const TY = { h: "hotel", m: "motel", g: "guest_house", v: "hostel", a: "apartment" };
-    hotelLoading = fetch("data/hotell.json?v=20261109").then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json() })
+    hotelLoading = fetch("data/hotell.json?v=20261115").then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json() })
       .then(a => { hotelAll = a.map(x => ({ navn: x[0], brand: x[1], lat: x[2], lon: x[3], typ: TY[x[4]] || "hotel", adr: x[5] })); return hotelAll })
       .finally(() => { hotelLoading = null });
     return hotelLoading;

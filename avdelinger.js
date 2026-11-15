@@ -2,7 +2,8 @@
 (function () {
 const AVD = [
   { navn: "Lindab Tromsø", adresse: "Ringvegen 13", postnr: "9018", sted: "Tromsø", lat: 69.693196, lon: 19.008256, orgnr: "" },
-  { navn: "Lindab Harstad", adresse: "Mercurveien 33", postnr: "9408", sted: "Harstad", lat: 68.789530, lon: 16.552683, orgnr: "" }
+  { navn: "Lindab Harstad", adresse: "Mercurveien 33", postnr: "9408", sted: "Harstad", lat: 68.789530, lon: 16.552683, orgnr: "" },
+  { navn: "Lindab Stavanger", adresse: "Fabrikkveien 56", postnr: "4323", sted: "Sandnes", lat: 58.813379, lon: 5.710769, orgnr: "973115219" }
 ];
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const LOGO = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="9.2" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M9 7v10h6.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';

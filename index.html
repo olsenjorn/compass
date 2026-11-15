@@ -90,6 +90,12 @@ label.f select,label.f input{font-size:14px;text-transform:none;letter-spacing:0
 .seg{color:var(--panel)}
 .kat{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:1px}
 .kat.Profil{background:var(--profil)}.kat.Ventilasjon{background:var(--vent)}
+.brrflag{font-size:11px;font-weight:700;color:#fff;background:var(--late);border-radius:4px;padding:0 5px;margin-left:4px}
+.brrbox{display:grid;gap:3px;margin:0 28px 10px 0;padding:8px 10px;border-radius:8px;border:1px solid var(--late);background:color-mix(in srgb,var(--late) 10%,var(--panel));color:var(--ink);font-size:13px}
+.brrbox b{color:var(--late)}
+.brrtoast{position:fixed;z-index:1200;right:max(16px,env(safe-area-inset-right,0px));bottom:max(16px,env(safe-area-inset-bottom,0px));max-width:340px;display:grid;gap:6px;padding:12px 14px;border-radius:10px;background:var(--panel);color:var(--ink);border:1px solid var(--late);box-shadow:0 6px 24px rgba(0,0,0,.25);font-size:13px}
+.brrtoast b{color:var(--late)}
+.brrtoast div{display:flex;gap:6px;justify-content:flex-end}
 .nopin{font-size:11px;font-weight:600;color:var(--warn-ink);background:var(--warn-bg);border-radius:4px;padding:0 5px;margin-left:4px}
 .empty{padding:28px 16px;color:var(--muted)}
 .mapwrap{position:relative;min-width:0;min-height:0;overflow:hidden}
@@ -690,18 +696,18 @@ body.planning .legend{display:none}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=20261113c"></script>
-<script src="app.js?v=20261113c"></script>
-<script src="adresser.js?v=20261113c"></script>
-<script src="planner.js?v=20261113c"></script>
-<script src="calendar.js?v=20261113c"></script>
-<script src="invitasjoner.js?v=20261113c"></script>
-<script src="booking.js?v=20261113c"></script>
-<script src="profil.js?v=20261113c"></script>
-<script src="ferger.js?v=20261113c"></script>
-<script src="avdelinger.js?v=20261113c"></script>
-<script src="lunsj.js?v=20261113c"></script>
-<script src="kundedata.js?v=20261113c"></script>
-<script src="vegmeldinger.js?v=20261113c"></script>
+<script src="config.js?v=20261115a"></script>
+<script src="app.js?v=20261115a"></script>
+<script src="adresser.js?v=20261115a"></script>
+<script src="planner.js?v=20261115a"></script>
+<script src="calendar.js?v=20261115a"></script>
+<script src="invitasjoner.js?v=20261115a"></script>
+<script src="booking.js?v=20261115a"></script>
+<script src="profil.js?v=20261115a"></script>
+<script src="ferger.js?v=20261115a"></script>
+<script src="avdelinger.js?v=20261115a"></script>
+<script src="lunsj.js?v=20261115a"></script>
+<script src="kundedata.js?v=20261115a"></script>
+<script src="vegmeldinger.js?v=20261115a"></script>
 </body>
 </html>
